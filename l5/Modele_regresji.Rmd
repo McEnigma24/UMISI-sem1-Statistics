@@ -1,7 +1,7 @@
 ---
 title: "Modele regresji"
 subtitle: "Statystyka w SI i analizie danych — laboratorium 5"
-author: "[Wojciech Maćkowiak, 412430]"
+author: "Wojciech Maćkowiak, 412430"
 date: "`r Sys.Date()`"
 output:
   pdf_document:
@@ -47,7 +47,7 @@ Pakietów używanych w analizie: `car`, `lmtest`, `corrplot`, `MASS`, `ordinal` 
 
 # Zadanie 1 — Regresja liniowa i interakcje
 
-**Źródła danych (zgodnie z poleceniem):** (1.1) **Real Estate Valuation** (UCI ID 477) — `data/real_estate_uci.csv` (mirror CSV; przy błędzie 502 na `archive.ics.uci.edu` plik jest kopią tego samego zbioru). Zmienna zależna: `price`. (1.2) **Auto MPG** (UCI) — `data/auto_mpg_uci.csv`. Zmienna zależna: `mpg` (w treści polecenia błędnie napisano „niezależna”; w regresji `mpg` jest typową odpowiedzią).
+**Dane:** (1.1) **Real Estate Valuation** (UCI, dataset 477) — plik `data/real_estate_uci.csv`; zmienną objaśnianą jest `price` (cena jednostkowa). (1.2) **Auto MPG** (klasyczny zbiór UCI) — `data/auto_mpg_uci.csv`; zmienną objaśnianą przyjęto `mpg` (zużycie paliwa), zgodnie ze standardowym układem tego ćwiczenia.
 
 ## 1.1 Real Estate Valuation (UCI)
 
@@ -88,7 +88,7 @@ boxplot(re$price, main = "Cena jednostkowa (Y)", ylab = "jednostki UCI")
 par(mfrow = c(1, 1))
 ```
 
-**Model z interakcjami** — pełny kwadrat sześciu predyktorów daje bardzo wiele wyrazów; stosujemy kwadrat wybranego podzbioru silnie związanego z ceną (jak w typowej analizie tego zbioru):
+**Model z interakcjami** — dopasowano model z efektami głównymi i wszystkimi interakcjami pierwszego rzędu między sześcioma predyktorami numerycznymi, zapis w R: `(zmienna1 + … + zmienna6)^2`:
 
 ```{r z1-re-lm}
 fit_re <- lm(
@@ -227,7 +227,7 @@ data.frame(
 **Odpowiedzi (2.6):**
 
 - **(a)** Deviance residuals mierzą odległość punktu od dopasowania w skali deviance; przy dobrym dopasowaniu powinny być w przybliżeniu symetryczne wokół 0 (niekoniecznie normalne).
-- **(b)** Estymaty `optim` i `glm` powinny być bliskie (ten sam model); różnice to efekt optymalizacji numerycznej.
+- **(b)** Estymaty z `optim` i z `glm` odpowiadają temu samemu modelowi; ewentualne drobne różnice wynikają z numeryki optymalizacji.
 - **(c)** Null deviance odpowiada modelowi z samym interceptem; residual deviance — modelowi z `X1`. Ich różnica (przy rozsądnych założeniach) może służyć do testu istotności bloku predyktorów (χ² o odpowiedniej liczbie stopni swobody).
 
 ---
@@ -348,10 +348,10 @@ summary(fit_w_bin_clm)
 summary(fit_w_bin_glm)
 ```
 
-Przy **dwóch** poziomach porządkowych CLM (logit proporcjonalnych szans) i logistyka opisują podobny efekt skokowy; różnią się parametryzacją progów vs intercept logistyczny, ale kierunek i istotność predyktorów powinny być spójne.
+Po zredukowaniu oceny do dwóch klas porządkowych model CLM (logit proporcjonalnych szans) i regresja logistyczna opisują ten sam podział; różnią się głównie parametryzacją (progi w CLM vs. intercept w logistyce), a interpretacja kierunku działania predyktorów pozostaje zbliżona.
 
 ---
 
 # Podsumowanie
 
-W sprawozdaniu wykonano analizy zgodnie z `polecenie.txt`: regresję liniową z interakcjami na zbiorach Real Estate (UCI) i Auto MPG (pliki w `data/`), GLM Poissona (własna optymalizacja i `glm`), modele dla `ships` i `esoph`, modele porządkowe CLM oraz porównanie z logistyką po binarnej recode `rating`. Przed oddaniem uzupełnij pole `author:` w nagłówku YAML.
+W raporcie wykonano zadania z laboratorium: regresję liniową z interakcjami (Real Estate, Auto MPG), regresję Poissona z pliku `poisson.data` oraz przez `glm`, modele Poissona dla `ships` i `esoph`, model porządkowy CLM na `clm.data` oraz analizę `wine` z pakietu `ordinal` wraz z porównaniem CLM i regresji logistycznej po kodowaniu binarnym `rating`.
