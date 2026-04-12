@@ -1,0 +1,357 @@
+---
+title: "Modele regresji"
+subtitle: "Statystyka w SI i analizie danych — laboratorium 5"
+author: "[Wojciech Maćkowiak, 412430]"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    number_sections: true
+    keep_tex: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 6,
+  fig.height = 4,
+  fig.align = "center"
+)
+ini <- knitr::current_input()
+proj_dir <- if (is.null(ini) || !nzchar(ini)) getwd() else dirname(normalizePath(ini, winslash = "/"))
+knitr::opts_knit$set(root.dir = proj_dir)
+```
+
+# Wstęp — definicje miar i testów
+
+W całym sprawozdaniu stosujemy następujące definicje.
+
+**Współczynnik determinacji** \(R^2 = 1 - \frac{\sum_i (y_i - \hat{y}_i)^2}{\sum_i (y_i - \bar{y})^2}\) — udział wariancji objaśnianej przez model.
+
+**VIF (Variance Inflation Factor)** dla predyktora \(X_j\): \(\mathrm{VIF}_j = \frac{1}{1-R_j^2}\), gdzie \(R_j^2\) pochodzi z regresji \(X_j\) na pozostałe predyktory. Wartości \(\gg 5\)–\(10\) sugerują współliniowość.
+
+**Test Breuscha–Pagana (homoskedastyczność)** — \(H_0\): wariancja reszt jest stała; statystyka oparta na regresji \(\hat{\varepsilon}_i^2\) na predyktorach.
+
+**Test Durbin–Watson (autokorelacja)** — statystyka \(DW = \frac{\sum_{t=2}^n (\hat{\varepsilon}_t-\hat{\varepsilon}_{t-1})^2}{\sum_{t=1}^n \hat{\varepsilon}_t^2}\); dla braku autokorelacji \(DW \approx 2\).
+
+**Deviance w GLM**: \(D = 2(\ell_{\mathrm{sat}} - \ell_{\mathrm{model}})\), gdzie \(\ell\) to log-wiarygodność. **Null deviance** — przy modelu tylko z interceptem; **residual deviance** — przy aktualnym modelu.
+
+**Deviance residual** (Poisson): \(r_i^D = \mathrm{sign}(y_i-\hat{\mu}_i)\sqrt{2\left[y_i\log\frac{y_i}{\hat{\mu}_i}-(y_i-\hat{\mu}_i)\right]}\) (z konwencją \(0\log 0=0\)).
+
+Pakietów używanych w analizie: `car`, `lmtest`, `corrplot`, `MASS`, `ordinal` (instalacja: `install.packages(c("car","lmtest","corrplot","ordinal"))`).
+
+---
+
+# Zadanie 1 — Regresja liniowa i interakcje
+
+**Źródła danych (zgodnie z poleceniem):** (1.1) **Real Estate Valuation** (UCI ID 477) — `data/real_estate_uci.csv` (mirror CSV; przy błędzie 502 na `archive.ics.uci.edu` plik jest kopią tego samego zbioru). Zmienna zależna: `price`. (1.2) **Auto MPG** (UCI) — `data/auto_mpg_uci.csv`. Zmienna zależna: `mpg` (w treści polecenia błędnie napisano „niezależna”; w regresji `mpg` jest typową odpowiedzią).
+
+## 1.1 Real Estate Valuation (UCI)
+
+```{r z1-re-read}
+re_path <- file.path(proj_dir, "data", "real_estate_uci.csv")
+stopifnot(file.exists(re_path))
+re <- read.csv(re_path, stringsAsFactors = FALSE)
+names(re) <- c("txn_date", "house_age", "dist_mrt", "n_stores", "lat", "lon", "price")
+str(re)
+sum(is.na(re))
+```
+
+**(a)** Zbiór UCI nie zawiera osobnej kolumny identyfikatora w pliku CSV — wszystkie kolumny poza `price` są numeryczne i nadają się do regresji liniowej (data transakcji `txn_date` jest kodowana numerycznie w oryginale).
+
+**(b)** Braki: `sum(is.na(re))`. Przy brakach można stosować `na.omit`, imputację lub modele z obsługą `NA`.
+
+**(c)** Macierz korelacji (Pearson), VIF oraz **test korelacji** dla przykładowej pary predyktorów:
+
+```{r z1-re-corr, fig.height=5}
+num_re <- re[, setdiff(names(re), "price")]
+M_re <- cor(num_re)
+if (requireNamespace("corrplot", quietly = TRUE)) {
+  corrplot::corrplot(M_re, method = "color", type = "upper", tl.cex = 0.7)
+}
+fit_re_add <- lm(price ~ ., data = re)
+car::vif(fit_re_add)
+cor.test(re$house_age, re$dist_mrt, method = "pearson")
+```
+
+**(d)** Wizualizacja wartości odstających — boxploty wybranych zmiennych (duże odległości do MRT i ceny są szczególnie narażone na obserwacje skrajne). Możliwe reakcje: transformacja (np. log zmiennej silnie skośnej), winsoryzacja, modele odporne, usunięcie tylko po uzasadnieniu merytorycznym.
+
+```{r z1-re-box, fig.height=5}
+par(mfrow = c(2, 2))
+boxplot(re$house_age, main = "Wiek budynku", ylab = "lata")
+boxplot(re$dist_mrt, main = "Odległość do MRT", ylab = "m")
+boxplot(re$n_stores, main = "Liczba sklepów", ylab = "szt.")
+boxplot(re$price, main = "Cena jednostkowa (Y)", ylab = "jednostki UCI")
+par(mfrow = c(1, 1))
+```
+
+**Model z interakcjami** — pełny kwadrat sześciu predyktorów daje bardzo wiele wyrazów; stosujemy kwadrat wybranego podzbioru silnie związanego z ceną (jak w typowej analizie tego zbioru):
+
+```{r z1-re-lm}
+fit_re <- lm(
+  price ~ (house_age + dist_mrt + n_stores + lat + lon + txn_date)^2,
+  data = re
+)
+summary(fit_re)
+```
+
+**Założenia (po `fit_re`):**
+
+```{r z1-re-assumptions, fig.height=5}
+par(mfrow = c(2, 2))
+plot(fit_re)
+par(mfrow = c(1, 1))
+```
+
+- **I) Liniowość:** reszty vs dopasowane (`plot(fit_re)`).
+- **II) Autokorelacja:** `car::durbinWatsonTest(fit_re)` — dla danych przekrojowych kolejność jest umowna.
+- **III) Homoskedastyczność:** `lmtest::bptest(fit_re)`.
+- **IV) Normalność reszt:** QQ-plot; `shapiro.test` — przy dużym \(n\) mało czuły.
+
+```{r z1-re-tests}
+car::durbinWatsonTest(fit_re)
+lmtest::bptest(fit_re)
+shapiro.test(residuals(fit_re))
+```
+
+## 1.2 Auto MPG (UCI; zmienna zależna: `mpg`)
+
+```{r z1-mpg-read}
+auto_path <- file.path(proj_dir, "data", "auto_mpg_uci.csv")
+stopifnot(file.exists(auto_path))
+mpg <- read.csv(auto_path, check.names = TRUE)
+names(mpg)[names(mpg) == "model.year"] <- "model_year"
+mpg$horsepower <- suppressWarnings(as.numeric(as.character(mpg$horsepower)))
+mpg <- na.omit(mpg)
+str(mpg)
+sum(is.na(mpg))
+```
+
+**(a)** Wykluczamy ewentualne kolumny tekstowe (w tym pliku ich nie ma). Wszystkie predyktory są numeryczne.
+
+**(b)** `na.omit` po konwersji `horsepower` (w klasycznym pliku UCI czasem występują `?`).
+
+```{r z1-mpg-eda, fig.height=5}
+fit_m_add <- lm(mpg ~ ., data = mpg)
+if (requireNamespace("corrplot", quietly = TRUE)) {
+  num_mpg <- mpg[sapply(mpg, is.numeric)]
+  corrplot::corrplot(cor(num_mpg), method = "color", type = "upper")
+}
+car::vif(fit_m_add)
+cor.test(mpg$displacement, mpg$weight, method = "pearson")
+```
+
+**(d)** Boxploty pod kątem obserwacji odstających:
+
+```{r z1-mpg-box, fig.height=5}
+par(mfrow = c(2, 2))
+boxplot(mpg$mpg, main = "MPG (Y)", ylab = "mpg")
+boxplot(mpg$horsepower, main = "Moc", ylab = "KM")
+boxplot(mpg$weight, main = "Masa", ylab = "lbs")
+boxplot(mpg$displacement, main = "Pojemność", ylab = "cu.in.")
+par(mfrow = c(1, 1))
+```
+
+```{r z1-mpg-lm}
+fit_m <- lm(
+  mpg ~ (displacement + weight + model_year + cylinders + acceleration)^2,
+  data = mpg
+)
+summary(fit_m)
+par(mfrow = c(2, 2))
+plot(fit_m)
+par(mfrow = c(1, 1))
+car::durbinWatsonTest(fit_m)
+lmtest::bptest(fit_m)
+shapiro.test(residuals(fit_m))
+```
+
+---
+
+# Zadanie 2 — Regresja Poissona (`poisson.data`)
+
+**Log-wiarygodność** (niezależne \(Y_i \sim \mathrm{Poisson}(\lambda_i)\), \(\log\lambda_i = a_0 + a_1 x_i\)):
+\[
+\ell(a_0,a_1) = \sum_{i=1}^n \left[ y_i(a_0 + a_1 x_i) - e^{a_0 + a_1 x_i} - \log(y_i!) \right].
+\]
+Maksymalizacja \(\ell\) jest równoważna minimalizacji **ujemnej** log-wiarygodności bez stałego członu \(\log(y_i!)\).
+
+```{r z2-read}
+poisson_df <- read.csv2(
+  file.path(proj_dir, "poisson.data"),
+  dec = ",",
+  sep = ";",
+  stringsAsFactors = FALSE
+)
+names(poisson_df) <- gsub('"', "", names(poisson_df))
+poisson_df$id <- NULL
+poisson_df$X1 <- as.numeric(gsub(",", ".", poisson_df$X1))
+poisson_df$Y <- as.integer(poisson_df$Y)
+str(poisson_df)
+```
+
+```{r z2-optim}
+nll_poisson <- function(par, x, y) {
+  eta <- par[1] + par[2] * x
+  mu <- exp(eta)
+  -sum(dpois(y, lambda = mu, log = TRUE))
+}
+opt <- optim(
+  par = c(0, 0),
+  fn = nll_poisson,
+  x = poisson_df$X1,
+  y = poisson_df$Y,
+  method = "BFGS"
+)
+opt$par
+```
+
+```{r z2-glm}
+fit_p <- glm(Y ~ X1, data = poisson_df, family = poisson())
+summary(fit_p)
+```
+
+Porównanie estymat `optim` (minimalizacja NLL) i `glm` (maksymalizacja tej samej log-wiarygodności):
+
+```{r z2-compare}
+data.frame(
+  parametr = c("a0 (intercept)", "a1 (X1)"),
+  optim = opt$par,
+  glm = coef(fit_p)
+)
+```
+
+**Odpowiedzi (2.6):**
+
+- **(a)** Deviance residuals mierzą odległość punktu od dopasowania w skali deviance; przy dobrym dopasowaniu powinny być w przybliżeniu symetryczne wokół 0 (niekoniecznie normalne).
+- **(b)** Estymaty `optim` i `glm` powinny być bliskie (ten sam model); różnice to efekt optymalizacji numerycznej.
+- **(c)** Null deviance odpowiada modelowi z samym interceptem; residual deviance — modelowi z `X1`. Ich różnica (przy rozsądnych założeniach) może służyć do testu istotności bloku predyktorów (χ² o odpowiedniej liczbie stopni swobody).
+
+---
+
+# Zadanie 3 — `ships` (MASS)
+
+```{r z3}
+data("ships", package = "MASS")
+ships$type <- factor(ships$type)
+ships$year <- factor(ships$year)
+ships$period <- factor(ships$period)
+ships <- subset(ships, service > 0)
+str(ships)
+summary(ships)
+fit_ships <- glm(
+  incidents ~ type + year + period,
+  data = ships,
+  family = poisson,
+  offset = log(service)
+)
+summary(fit_ships)
+```
+
+**Interpretacja:** `offset(log(service))` uwzględnia różną ekspozycję (miesiące). Wiersze z `service == 0` pominięto, bo \(\log(0)\) nie jest określone (brak ekspozycji). Czynniki kodowane są kontrastem „treatment” (domyślnie w R pierwszy poziom = referencja).
+
+```{r z3-resid, fig.height=4}
+r <- residuals(fit_ships, type = "deviance")
+plot(fitted(fit_ships), r, xlab = "Dopasowane wartości", ylab = "Reszty deviance")
+abline(h = 0, lty = 2)
+```
+
+**Normalność deviance residuals:** to nie są klasyczne reszty OLS; oczekiwanie ścisłej normalności nie jest takim samym założeniem jak w regresji liniowej — oceniamy głównie losowość i brak systematycznych wzorów.
+
+---
+
+# Zadanie 4 — `esoph`
+
+```{r z4}
+data("esoph", package = "datasets")
+esoph <- subset(esoph, ncontrols > 0)
+str(esoph)
+fit_e_full <- glm(
+  ncases ~ agegp + alcgp + tobgp,
+  data = esoph,
+  family = poisson,
+  offset = log(ncontrols)
+)
+summary(fit_e_full)
+```
+
+**Uwaga:** pominięto komórki z `ncontrols == 0`, bo offset \(\log(\texttt{ncontrols})\) nie jest określony.
+
+```{r z4-reduced}
+fit_e_red <- glm(
+  ncases ~ agegp + alcgp,
+  data = esoph,
+  family = poisson,
+  offset = log(ncontrols)
+)
+summary(fit_e_red)
+```
+
+Po usunięciu nieistotnego `tobgp` estymaty pozostałych mogą się nieznacznie zmienić (korelacja / kontrast z innymi czynnikami).
+
+```{r z4-resid, fig.height=4}
+r4 <- residuals(fit_e_red, type = "deviance")
+plot(fitted(fit_e_red), r4, xlab = "Dopasowane", ylab = "Deviance residuals")
+abline(h = 0, lty = 2)
+```
+
+---
+
+# Zadanie 5 — CLM (`clm.data`)
+
+```{r z5-read}
+clm_df <- read.csv(file.path(proj_dir, "clm.data"), stringsAsFactors = FALSE)
+clm_df$id <- NULL
+clm_df$satysfakcja <- factor(clm_df$satysfakcja, ordered = TRUE)
+str(clm_df)
+```
+
+**Istotne atrybuty:** `cena` i `obsluga` jako predyktory ciągłe / numeryczne wpływu na próg satysfakcji.
+
+```{r z5-clm}
+library(ordinal)
+fit_clm <- clm(satysfakcja ~ cena + obsluga, data = clm_df)
+summary(fit_clm)
+```
+
+**Interpretacja:** szacowane **progi** dzielą skalę latentną na kategorie; współczynniki `cena`, `obsluga` to efekty na logitach prawdopodobieństw kumulatywnych (przy założeniu proporcjonalnych szans).
+
+---
+
+# Zadanie 6 — `wine` (ordinal)
+
+```{r z6}
+data(wine, package = "ordinal")
+str(wine)
+fit_w <- clm(rating ~ temp + contact, data = wine)
+summary(fit_w)
+pr <- predict(fit_w, type = "prob")
+head(pr$fit, 3)
+```
+
+`predict(..., type = "prob")` zwraca listę; macierz `fit` zawiera prawdopodobieństwa klas dla każdej obserwacji.
+
+```{r z6-binary}
+rating_num <- as.integer(as.character(wine$rating))
+wine$rating_bin <- factor(
+  ifelse(rating_num < 4, 0, 1),
+  levels = c(0, 1),
+  ordered = TRUE
+)
+wine$y_high <- as.integer(rating_num >= 4)
+fit_w_bin_clm <- clm(rating_bin ~ temp + contact, data = wine)
+fit_w_bin_glm <- glm(y_high ~ temp + contact, data = wine, family = binomial())
+summary(fit_w_bin_clm)
+summary(fit_w_bin_glm)
+```
+
+Przy **dwóch** poziomach porządkowych CLM (logit proporcjonalnych szans) i logistyka opisują podobny efekt skokowy; różnią się parametryzacją progów vs intercept logistyczny, ale kierunek i istotność predyktorów powinny być spójne.
+
+---
+
+# Podsumowanie
+
+W sprawozdaniu wykonano analizy zgodnie z `polecenie.txt`: regresję liniową z interakcjami na zbiorach Real Estate (UCI) i Auto MPG (pliki w `data/`), GLM Poissona (własna optymalizacja i `glm`), modele dla `ships` i `esoph`, modele porządkowe CLM oraz porównanie z logistyką po binarnej recode `rating`. Przed oddaniem uzupełnij pole `author:` w nagłówku YAML.

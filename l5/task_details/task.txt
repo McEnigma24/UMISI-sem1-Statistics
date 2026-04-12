@@ -1,0 +1,106 @@
+Statystyka w sztucznej inteligencji i analizie danych 2024/25
+Raport: Modele regresji
+Regresja liniowa i interakcje
+Zadanie 1
+Dostępne są zbiory danych:
+1.1 Real Estate Valuation -
+https://archive.ics.uci.edu/dataset/477/real+estate+valuation+data+set
+1.2 Auto-mpg dataset – zmienną niezależną jest mpg
+https://www.kaggle.com/datasets/uciml/autompg-dataset
+Przed przystąpienie do tworzenie modeli sprawdź czy dane nadają się do regresji
+liniowej, regresji wielokrotnej oraz regresji uwzględniającej interakcje pomiędzy
+czynnikami. W szczególności sprawdź:
+a) Przydatność poszczególnych zmiennych niezależnych – Dane w plikach mogą
+zawierać kolumny, które nie nadają się do analizy modelem liniowym (np. nr id,
+dane kategoryczne). Wyklucz te dane.
+b) Brak brakujących wartości – Kompletność danych jest kluczowym punktem
+przed rozpoczęciem analizy. W jaki sposób możemy zareagować na braki w
+pewnych wartościach?
+c) Brak współliniowości zmiennych objaśniających – Zmienne objaśniające nie
+powinny być silnie skorelowane ze sobą. Jeśli współliniowość występuje, może
+to prowadzić do niestabilności estymacji parametrów. Zwizualizuj dane. Jakim
+testem możemy sprawdzić czy dane są skorelowane
+d) Brak danych odstających – Dane odstające mogę negatywnie wpłynąć na
+działanie modeli liniowych (i nie tylko). Zwizualizuj dane. Jakie podejście
+możemy przyjąć w stosunku do zbioru z danymi odstającymi.
+Dla każdego z tych zbiorów przeprowadź regresję wieloraką z uwzględnieniem
+interakcji pomiędzy czynnikami. Sprawdź które zmienne niezależne mają istotny
+wpływ na model. Po stworzeniu modelu sprawdź czy spełnione są założenia regresji.
+W szczególności:
+I) Liniowość – Zakłada się, że istnieje liniowa zależność między zmienną
+objaśnianą (y) a zmiennymi objaśniającymi (X). Oznacza to, że model
+przyjmuje postać równania liniowego:
+II) Brak autokorelacji reszt: Reszty nie powinny wykazywać wzorca ani być
+skorelowane. Jakim testem można to sprawdzić? Jak wywołać ten test w R?
+III) Homoskedastyczność – Wariancja reszt powinna być stała dla wszystkich
+wartości zmiennych objaśniających. Jakim testem można to sprawdzić? Jak
+wywołać ten test w R?
+IV) Normalność reszt – Reszty powinny mieć rozkład normalny o średniej równej
+zero.
+Zadanie 2
+Regresja Poissonowska:
+2. Dane są atrybuty niezależne X1, . . . , Xp oraz atrybut zależny Y, taki że Y ∈ ℤ+
+Zakładamy, że zmienne objaśniane Y mają rozkład Poissona:
+𝑃(𝑌 = 𝑘) = λke-λ
+k! ,
+gdzie λ jest parametrem tego rozkładu.
+Zadanie 1. Podaj postać funkcji wiarygodności dla tego modelu regresji zakładając,
+że dysponujemy n przypadkami i dla każdego przykładu spełniona jest zależność
+log(λ) = a0 + a1X1 + ⋯ + apXp
+2.1 Wczytaj dane z pliku poisson.data.
+2.2 Zoptymalizuj funkcję wiarygodności (funkcja optim) dla tego modelu zakładając,
+że p = 1.
+2.3 Odczytaj optymalne parametry.
+2.4 Naucz na tych samych danych model przy pomocy wbudowanego moedlu
+glm(model , data, family = poisson)
+2.5 Wypisz podstawowe informacje dotyczące nauczonego modelu: summary(model)
+2.6 Odpowiedz na pytania:
+a) Czym są Deviance Residual i jakich wartości powinniśmy się spodziewać.
+b) Które wartości modelu są istotne? Czy są to te same wartości co uzyskane funkcją
+optim?
+c) Co oznaczają Null deviance i Residual deviance, i jak je interpretujemy?
+Zadanie 3
+3. Wczytaj dane ships z pakietu MASS: data("ships")
+3.1 Przeczytaj odpis danych. Zwróć uwagę jakie wartości przyjmują kolejne atrybuty.
+3.2 Przeprowadź regresją Poissonowską, gdzie zmienną objaśnianą jest incidents.
+Które atrybuty należy włączyć do modelu.
+3.3 W jaki sposób program potraktował kolejne zmienne?
+3.4 Wykonaj wykres otrzymanych reszt (resid(model, type = "deviance")). Czy
+spełnione jest założenie o ich normalności?
+Zadanie 4
+4. Wczytaj dane esoph z pakietu ISwR: data("esoph")
+4.1 Przeczytaj odpis danych.
+4.2 Przeprowadź regresją Poissonowską, gdzie zmienną objaśnianą jest ncases.
+4.3 Które atrybuty są istotne dla modelu?
+4.4 Stwórz model bazując jedynie na istotnych atrybutach. Czy parametry modelu się
+zmienił i dlaczego.
+4.5 Oceń dopasowanie modelu (sprawdź warunki resyduów).
+Zadanie 5
+Regresja Porządkowa (CLM - Cumulative Link Model)
+5. Wczytaj dane z pliku clm.data
+5.1 Przejrzyj dane i wybierz jedynie istotne atrybuty.
+5.2. Przeprowadź na danych regresję porządkową CLM. Możesz skorzystać z
+pakietu ordinal
+install.packages("ordinal")
+library(ordinal)
+model <- clm(model, data = dane)
+5.3 Przejrzyj wyświetlane wyniki. Co oznaczają poszczególne wartości?
+Zadanie 6
+6. Wczytaj dane wine z pakietu ordinal: data(wine, package = "ordinal")
+6.1 Przeprowadź regresję względem atrybutu rating.
+6.2 Wykonaj przewidywania modelu na danych uczących
+predict(model, wybrane_atrybuty, type = "prob")
+6.3 Opisz w jaki sposób są wyświetlane wyniki.
+6.4 Przekształć atrybut zależny tak, że wartości mniejsze niż 4 oznacz jako zero, a
+wartości większe bądź równe 4 jako 1.
+6.5 Przeprowadź regresję porządkową na tak zakodowanych klasach i regresję
+logistyczną. Czy wyniki różnią się od siebie?
+Sprawozdanie powinno zawierać:
+1. Dane identyfikacyjne autora.
+2. Tytuł zadania oraz tytuły rozwiązywanych zadań.
+3. Wszystkie miary i statystyki wykorzystywane do oceny działania modelu
+powinny zostać jednokrotnie zdefiniowane w sprawozdaniu (z użyciem
+wzorów).
+4. Proszę o wstawienie komend w R, otrzymanych wyników oraz opisu ich
+interpretacji. Komendy i wyniki mogą być wklejonymi print screen-ami.
+Sprawozdania proszę przesłać w formie plików pdf.
