@@ -1,0 +1,106 @@
+Regularyzacja w modelach liniowych
+Semestr letni 2022/23
+Regularyzacja
+Obie omawiane na wykładzie metody regularyzacji są zaimplementowane w funkcji glmnet() z pakietu glmnet. Ćwiczenia wykorzystują zbiór danych Hitters z pakietu ISLR. Przed wykonaniem ćwiczeń należy z niego usunąć wiersze zawierające NA.
+
+Funkcja glmnet::glmnet() ma składnię odmienną od lm() i jej podobnych. Dane wejściowe muszą być podane odmiennie. Trzeba w szczególności samodzielnie skonstruować macierz X
+
+X <- model.matrix(Salary ~ ., data = Hitters)[, -1]
+y <- Hitters$Salary
+Argument alpha funkcji glmnet() decyduje o typie użytej regularyzacji: 0 oznacza regresję grzbietową, a 1 lasso.
+
+Regresja grzbietowa
+Wykonujemy regresję grzbietową dla jawnie określonych wartości λ
+. Podany ciąg λ
+ powinien być malejący. Funkcja glmnet() domyślnie dokonuje standaryzacji zmiennych.
+
+lambda_grid <- 10^seq(10, -2, length.out = 100)
+fit_ridge <- glmnet(X, y, alpha = 0, lambda = lambda_grid)
+Dla każdej wartości λ
+ otrzymujemy zestaw estymat predyktorów dostępnych w postaci macierzy
+
+dim(coef(fit_ridge))
+Można sprawdzić, że większe wartości λ
+ dają mniejszą normę euklidesową współczynników (pomijamy wyraz wolny).
+
+fit_ridge$lambda[50]
+coef_ridge <- coef(fit_ridge)[, 50]
+coef_ridge
+sqrt(sum(coef_ridge[-1]^2))
+Natomiast mniejsze wartości λ
+ dają większą normę euklidesową współczynników
+
+fit_ridge$lambda[70]
+coef(fit_ridge)[, 70]
+sqrt(sum(coef(fit_ridge)[-1, 70]^2))
+Przy pomocy funkcji predict.glmnet() można uzyskać np. wartości estymat współczynników dla nowej wartości λ
+ (np. 50)
+
+predict(fit_ridge, s = 50, type = "coefficients")
+Estymujemy testowy MSE
+
+set.seed(1)
+n <- nrow(X)
+train <- sample(n, n / 2)
+test <- -train
+fit_ridge <- glmnet(X[train,], y[train], alpha = 0, lambda = lambda_grid,
+                    thresh = 1e-12)
+Dla λ=4
+
+pred_ridge <- predict(fit_ridge, s = 4, newx = X[test,])
+mean((pred_ridge - y[test])^2)
+Testowy MSE dla modelu zerowego (sam wyraz wolny)
+
+pred_null <- mean(y[train])
+mean((pred_null - y[test])^2)
+Testowy MSE dla bardzo dużej wartości λ=1010
+
+pred_ridge_big <- predict(fit_ridge, s = 1e10, newx = X[test,])
+mean((pred_ridge_big - y[test])^2)
+[Jak wygląda porównanie?]
+
+Testowy MSE dla λ=0
+ (metoda najmniejszych kwadratów)
+
+pred_ridge_0 <- predict(fit_ridge, x = X[train,], y = y[train], s = 0,
+                      newx = X[test,], exact = TRUE)
+mean((pred_ridge_0 - y[test])^2)
+Porównanie estymat współczynników
+
+lm(y ~ X, subset = train)
+predict(fit_ridge, x = X[train,], y = y[train], s = 0, exact = TRUE,
+        type = "coefficients")[1:20,]
+Wyliczenie optymalnej wartości λ
+ przy pomocy walidacji krzyżowej
+
+set.seed(1)
+cv_out <- cv.glmnet(X[train,], y[train], alpha = 0)
+plot(cv_out)
+cv_out$lambda.min
+MSE dla optymalnego λ
+
+pred_ridge_opt <- predict(fit_ridge, s = cv_out$lambda.min, newx = X[test,])
+mean((pred_ridge_opt - y[test])^2)
+Estymaty współczynników dla optymalnego λ
+
+fit_ridge_full <- glmnet(X, y, alpha = 0)
+predict(fit_ridge_full, s = cv_out$lambda.min, type = "coefficients")
+Lasso
+Dopasowujemy lasso dla ustalonej siatki parametrów regularyzacji
+
+fit_lasso <- glmnet(X[train,], y[train], alpha = 1)
+plot(fit_lasso, xvar = "lambda")
+Wykonujemy walidację krzyżową i liczymy estymatę MSE
+
+cv_out <- cv.glmnet(X[train,], y[train], alpha = 1)
+plot(cv_out)
+cv_out$lambda.min
+pred_lasso <- predict(fit_lasso, s = cv_out$lambda.min, newx = X[test,])
+mean((pred_lasso - y[test])^2)
+[Jak wygląda porównanie z modelem zerowym, metodą najmniejszych kwadratów i regresją grzbietową?]
+
+Estymaty współczynników dla optymalnego λ
+
+fit_lasso_full <- glmnet(X, y, alpha = 1)
+predict(fit_lasso_full, s = cv_out$lambda.min, type = "coefficients")[1:20,]
+[Jak teraz wygląda porównanie z regresją grzbietową?]

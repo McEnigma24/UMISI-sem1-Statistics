@@ -1,0 +1,177 @@
+=== Regularyzacja w modelach liniowych (Hitters) ===
+
+Liczba obserwacji po usunieciu NA: 263 
+Liczba predyktorow: 19 
+
+=== Regresja grzbietowa: siatka lambda ===
+Wymiar macierzy wspolczynnikow: 20 x 100 
+
+Lambda[50] = 11497.57 
+Norma Euklidesowa wspolczynnikow (bez interceptu) dla lambda[50]: 6.360612 
+
+Lambda[70] = 43.28761 
+Norma Euklidesowa wspolczynnikow (bez interceptu) dla lambda[70]: 129.4454 
+
+Wspolczynniki ridge dla nowej wartosci lambda s = 50 (pierwsze 20):
+20 x 1 sparse Matrix of class "dgCMatrix"
+                     s=50
+(Intercept)  4.876610e+01
+AtBat       -3.580999e-01
+Hits         1.969359e+00
+HmRun       -1.278248e+00
+Runs         1.145892e+00
+RBI          8.038292e-01
+Walks        2.716186e+00
+Years       -6.218319e+00
+CAtBat       5.447837e-03
+CHits        1.064895e-01
+CHmRun       6.244860e-01
+CRuns        2.214985e-01
+CRBI         2.186914e-01
+CWalks      -1.500245e-01
+LeagueN      4.592589e+01
+DivisionW   -1.182011e+02
+PutOuts      2.502322e-01
+Assists      1.215665e-01
+Errors      -3.278600e+00
+NewLeagueN  -9.496680e+00
+
+=== Porownanie MSE (test) ===
+Ridge (lambda = 4): 142199.2 
+Model zerowy (srednia treningu): 224669.9 
+Ridge (lambda = 1e10): 224669.8 
+Ridge/OLS (lambda = 0): 168588.6 
+
+Podsumowanie LM (OLS) dla porownania:
+
+Call:
+lm(formula = y ~ X, subset = train)
+
+Residuals:
+    Min      1Q  Median      3Q     Max 
+-755.40 -172.21  -16.12  148.81 1709.58 
+
+Coefficients:
+             Estimate Std. Error t value Pr(>|t|)   
+(Intercept)  274.0145   125.3304   2.186   0.0309 * 
+XAtBat        -0.3521     0.9547  -0.369   0.7130   
+XHits         -1.6377     3.7435  -0.437   0.6626   
+XHmRun         5.8145     9.5466   0.609   0.5437   
+XRuns          1.5424     4.5241   0.341   0.7338   
+XRBI           1.1243     3.8265   0.294   0.7694   
+XWalks         3.7287     2.6005   1.434   0.1544   
+XYears       -16.3773    17.4006  -0.941   0.3487   
+XCAtBat       -0.6412     0.2499  -2.565   0.0116 * 
+XCHits         3.1632     1.1572   2.733   0.0073 **
+XCHmRun        3.4008     2.9882   1.138   0.2575   
+XCRuns        -0.9739     1.1832  -0.823   0.4122   
+XCRBI         -0.6005     1.1839  -0.507   0.6130   
+XCWalks        0.3379     0.5657   0.597   0.5515   
+XLeagueN     119.1486   117.7810   1.012   0.3139   
+XDivisionW  -144.0831    55.8401  -2.580   0.0112 * 
+XPutOuts       0.1976     0.1078   1.833   0.0694 . 
+XAssists       0.6804     0.3054   2.228   0.0279 * 
+XErrors       -4.7128     6.4677  -0.729   0.4677   
+XNewLeagueN  -71.0951   117.4263  -0.605   0.5461   
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+Residual standard error: 297 on 111 degrees of freedom
+Multiple R-squared:  0.5862,	Adjusted R-squared:  0.5154 
+F-statistic: 8.276 on 19 and 111 DF,  p-value: 7.206e-14
+
+
+Wspolczynniki ridge dla lambda = 0 (pierwsze 20):
+20 x 1 sparse Matrix of class "dgCMatrix"
+                     s=0
+(Intercept)  274.0200994
+AtBat         -0.3521900
+Hits          -1.6371383
+HmRun          5.8146692
+Runs           1.5423361
+RBI            1.1241837
+Walks          3.7288406
+Years        -16.3795195
+CAtBat        -0.6411235
+CHits          3.1629444
+CHmRun         3.4005281
+CRuns         -0.9739405
+CRBI          -0.6003976
+CWalks         0.3378422
+LeagueN      119.1434637
+DivisionW   -144.0853061
+PutOuts        0.1976300
+Assists        0.6804200
+Errors        -4.7127879
+NewLeagueN   -71.0898914
+
+=== Ridge z CV ===
+Optymalne lambda (cv.glmnet): 326.0828 
+MSE test dla lambda.min: 139856.6 
+Wspolczynniki ridge dla lambda.min (pierwsze 20):
+20 x 1 sparse Matrix of class "dgCMatrix"
+              s=326.0828
+(Intercept)  15.44383120
+AtBat         0.07715547
+Hits          0.85911582
+HmRun         0.60103106
+Runs          1.06369007
+RBI           0.87936105
+Walks         1.62444617
+Years         1.35254778
+CAtBat        0.01134999
+CHits         0.05746654
+CHmRun        0.40680157
+CRuns         0.11456224
+CRBI          0.12116504
+CWalks        0.05299202
+LeagueN      22.09143197
+DivisionW   -79.04032656
+PutOuts       0.16619903
+Assists       0.02941950
+Errors       -1.36092945
+NewLeagueN    9.12487765
+
+=== Lasso z CV ===
+Optymalne lambda (cv.glmnet): 5.832478 
+MSE test dla lambda.min: 144451.9 
+Wspolczynniki lasso dla lambda.min (pierwsze 20):
+20 x 1 sparse Matrix of class "dgCMatrix"
+              s=5.832478
+(Intercept)   48.3781458
+AtBat         -0.6656963
+Hits           3.7135175
+HmRun          .        
+Runs           .        
+RBI            .        
+Walks          3.1473446
+Years         -4.6536079
+CAtBat         .        
+CHits          .        
+CHmRun         0.1583293
+CRuns          0.3714966
+CRBI           0.4216269
+CWalks        -0.1685158
+LeagueN       26.8039907
+DivisionW   -118.6443253
+PutOuts        0.2489113
+Assists        0.0108759
+Errors        -0.6978810
+NewLeagueN     .        
+
+=== Tabela porownawcza MSE (test) ===
+                       model test_mse
+1                 Null model 224669.9
+2          Ridge lambda=1e10 224669.8
+3             Ridge lambda=4 142199.2
+4       Ridge lambda=0 (OLS) 168588.6
+5 Ridge lambda=cv lambda.min 139856.6
+6 Lasso lambda=cv lambda.min 144451.9
+
+Najlepszy model wg test MSE:
+                       model test_mse
+5 Ridge lambda=cv lambda.min 139856.6
+
+Liczba niezerowych wspolczynnikow (bez interceptu):
+Ridge lambda.min: 19 
+Lasso lambda.min: 13 

@@ -1,0 +1,53 @@
+=== Selekcja cech dla modeli liniowych (Hitters) ===
+
+Liczba obserwacji po usunieciu NA: 263 
+Liczba predyktorow dostepnych do selekcji: 19 
+
+=== Globalnie najlepsze podzbiory (best subset) ===
+BIC min: model z 6 zmiennymi; BIC = -147.9169 
+Cp min: model z 10 zmiennymi; Cp  = 5.009317 
+AdjR2 max: model z 11 zmiennymi; AdjR2 = 0.5225706 
+
+Wspolczynniki modelu optymalnego wg BIC:
+ (Intercept)        AtBat         Hits        Walks         CRBI    DivisionW 
+  91.5117981   -1.8685892    7.6043976    3.6976468    0.6430169 -122.9515338 
+     PutOuts 
+   0.2643076 
+
+Wspolczynniki modelu optymalnego wg Cp:
+ (Intercept)        AtBat         Hits        Walks       CAtBat        CRuns 
+ 162.5354420   -2.1686501    6.9180175    5.7732246   -0.1300798    1.4082490 
+        CRBI       CWalks    DivisionW      PutOuts      Assists 
+   0.7743122   -0.8308264 -112.3800575    0.2973726    0.2831680 
+
+Wspolczynniki modelu optymalnego wg AdjR2:
+ (Intercept)        AtBat         Hits        Walks       CAtBat        CRuns 
+ 135.7512195   -2.1277482    6.9236994    5.6202755   -0.1389914    1.4553310 
+        CRBI       CWalks      LeagueN    DivisionW      PutOuts      Assists 
+   0.7852528   -0.8228559   43.1116152 -111.1460252    0.2894087    0.2688277 
+
+=== Selekcja krokowa: forward ===
+BIC min:  6 zmiennych; BIC = -147.9169 
+Cp min:   10 zmiennych; Cp  = 5.009317 
+AdjR2 max: 11 zmiennych; AdjR2 = 0.5225706 
+
+=== Selekcja krokowa: backward ===
+BIC min:  8 zmiennych; BIC = -147.382 
+Cp min:   10 zmiennych; Cp  = 5.009317 
+AdjR2 max: 11 zmiennych; AdjR2 = 0.5225706 
+
+Czy stepwise znajduje globalnie najlepsze modele (best subset)?
+- BIC: forward = FALSE , backward = FALSE 
+- Cp:  forward = FALSE , backward = FALSE 
+- AdjR2: forward = FALSE , backward = FALSE 
+
+=== Metoda zbioru walidacyjnego ===
+Optymalna liczba zmiennych: 5 
+Minimalny blad walidacyjny MSE: 151301.5 
+
+=== 10-krotna walidacja krzyzowa ===
+Optymalna liczba zmiennych: 10 
+Minimalny blad CV MSE: 115788.5 
+
+=== Podsumowanie liczby zmiennych (best subset) ===
+BIC: 6 | Cp: 10 | AdjR2: 11 | Validation: 5 | CV: 10 

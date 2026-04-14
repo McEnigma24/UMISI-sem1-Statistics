@@ -1,0 +1,7 @@
+"model","test_mse"
+"Null model",224669.906736192
+"Ridge lambda=1e10",224669.833069663
+"Ridge lambda=4",142199.150722762
+"Ridge lambda=0 (OLS)",168588.573185792
+"Ridge lambda=cv lambda.min",139856.643477362
+"Lasso lambda=cv lambda.min",144451.912444182

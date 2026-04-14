@@ -1,0 +1,103 @@
+Selekcja cech dla modeli liniowych
+Semestr letni 2022/23
+Selekcja cech dla modeli liniowych
+Używamy zbioru danych Hitters z pakietu ISLR (?Hitters). Należy usunąć wiersze zawierające wartości NA.
+
+Hitters <- na.omit(Hitters)
+Metody selekcji cech są zaimplementowane w funkcji regsubsets() z pakietu leaps.
+
+Wybór najepszego podzbioru
+Hitters_bs <- regsubsets(Salary ~ ., data = Hitters)
+summary(Hitters_bs)
+Jak można zobaczyć, funkcja regsubsets() domyślnie uwzględnia maksymalnie 8 predyktorów. Jeśli chcemy to zmienić, musimy użyć parametru nvmax.
+
+Hitters_bs <- regsubsets(Salary ~ ., data = Hitters, nvmax = 19)
+Hitters_bs_sum <- summary(Hitters_bs)
+Hitters_bs_sum
+Obiekt zwracany przez funkcję summary.regsubsets() zawiera informacje umożliwiające zidentyfikowanie globalnie najlepszego pozdbioru cech, np. miarę Cp
+.
+
+Najlepszy podzbiór według kryterium BIC
+
+bic_min <- which.min(Hitters_bs_sum$bic)
+bic_min
+Hitters_bs_sum$bic[bic_min]
+Stosowny obrazek
+
+plot(Hitters_bs_sum$bic, xlab = "Liczba zmiennych", ylab = "BIC", col = "green",
+     type = "b", pch = 20)
+points(bic_min, Hitters_bs_sum$bic[bic_min], col = "red", pch = 9)
+Dostępny jest też specjalny rodzaj wykresu (?plot.regsubsets).
+
+plot(Hitters_bs, scale = "bic")
+Estymaty współczynników dla optymalnego podzbioru
+
+coef(Hitters_bs, id = 6)
+[Zrób podobną analizę dla innych kryteriów optymalności: Cp
+ i poprawionego R2
+. Zwróć uwagę na to, że poprawione R2
+ powinno być zmaksymalizowane.]
+
+Selekcja krokowa do przodu i wstecz
+Funkcja regsubsets() z odpowiednio ustawionym parametrem method może przeprowadzić selekcję krokową.
+
+Hitters_fwd <- regsubsets(Salary ~ ., data = Hitters, nvmax = 19,
+                          method = "forward")
+Hitters_fwd_sum <- summary(Hitters_fwd)
+Hitters_fwd_sum
+Hitters_back <- regsubsets(Salary ~ ., data = Hitters, nvmax = 19,
+                           method = "backward")
+Hitters_back_sum <- summary(Hitters_back)
+Hitters_back_sum
+[Które podzbiory predyktorów są optymalne w selekcji krokowej w przód i wstecz według kryteriów BIC, Cp
+ i poprawionego R2
+? Czy któreś z nich są faktycznie najlepsze?]
+
+Wybór modelu przy pomocy metody zbioru walidacyjnego
+Estymaty błędów testowych będą dokładne tylko jeśli wszystkie aspekty dopasowania modelu — w tym selekcję zmiennych — przeprowadzimy z użyciem wyłącznie zbioru uczącego.
+
+n <- nrow(Hitters)
+train <- sample(c(TRUE, FALSE), n, replace = TRUE)
+test <- !train
+Hitters_bs_v <- regsubsets(Salary ~ ., data = Hitters[train,], nvmax = 19)
+Niestety dla modeli zwracanych przez regsubsets nie ma odpowiedniej metody predict(). Może ona mieć następującą postać (funkcja model.matrix() tworzy macierz X
+ dla podanych punktów).
+
+predict.regsubsets <- function(object, newdata, id, ...) {
+  model_formula <- as.formula(object$call[[2]])
+  mat <- model.matrix(model_formula, newdata)
+  coefs <- coef(object, id = id)
+  mat[, names(coefs)] %*% coefs
+}
+Liczymy estymaty błędów
+
+prediction_error <- function(i, model, subset) {
+  pred <- predict(model, Hitters[subset,], id = i)
+  mean((Hitters$Salary[subset] - pred)^2)
+}
+val_errors <- sapply(1:19, prediction_error, model = Hitters_bs_v, subset = test)
+val_errors
+[Ile zmiennych zawiera model optymalny?]
+
+Po ustaleniu optymalnej liczby zmiennych szukamy optymalnego modelu z tą liczbą zmiennych przy pomocy wszystkich obserwacji.
+
+Wybór modelu przy pomocy k
+-krotnej walidacji krzyżowej
+Musimy dopasować model na każdym z k
+ zbiorów uczących i policzyć błędy testowe na odpowiednich zbiorach testowych.
+
+k <- 10
+folds <- sample(1:k, n, replace = TRUE)
+val_err <- NULL
+for (j in 1:k) {
+  fit_bs <- regsubsets(Salary ~ ., data = Hitters[folds != j,], nvmax = 19)
+  err <- sapply(1:19, prediction_error, model = fit_bs, subset = (folds == j))
+  val_err <- rbind(val_err, err)
+}
+Estymata błędu CV jest teraz średnią błędów w każdej grupie.
+
+cv_errors <- colMeans(val_err)
+cv_errors
+[Ile zmiennych ma model optymalny według tego kryterium?]
+
+Podobnie jak poprzednio, po wyznaczeniu optymalnej liczby zmiennych szukamy optymalnego modelu z tą liczbą zmiennych przy pomocy całego zbioru obserwacji.
