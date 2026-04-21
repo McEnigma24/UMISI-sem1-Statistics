@@ -1,0 +1,363 @@
+---
+title: "Modele nieliniowe"
+subtitle: "Statystyka w SI i analizie danych — laboratorium 7"
+author: "Wojciech Maćkowiak, 412430"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    number_sections: true
+    keep_tex: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 6,
+  fig.height = 4,
+  fig.align = "center"
+)
+ini <- knitr::current_input()
+proj_dir <- if (is.null(ini) || !nzchar(ini)) getwd() else dirname(normalizePath(ini, winslash = "/"))
+knitr::opts_knit$set(root.dir = proj_dir)
+```
+
+**Pakiety:** `ISLR` (zbiór `Wage`), `splines` (`bs`, `ns`), `gam` (`gam`, `s`, `lo`, `plot.Gam`). Instalacja: `install.packages(c("ISLR", "gam"))` (pakiet `splines` jest w bazie R).
+
+```{r libraries}
+library(ISLR)
+library(splines)
+library(gam)
+data(Wage)
+age_lims <- range(Wage$age)
+age_grid <- seq(age_lims[1], age_lims[2])
+```
+
+# Regresja wielomianowa
+
+Regresja wielomianowa stopnia 4: `wage` względem `age`.
+
+```{r poly-ortho}
+fit_poly <- lm(wage ~ poly(age, 4), data = Wage)
+summary(fit_poly)
+```
+
+To samo ze standardową bazą wielomianów \(X, X^2, X^3, X^4\) (`raw = TRUE`).
+
+```{r poly-raw}
+fit_poly_raw <- lm(wage ~ poly(age, 4, raw = TRUE), data = Wage)
+summary(fit_poly_raw)
+```
+
+Ekwiwalent zapisany przez `I(age^k)`:
+
+```{r poly-i}
+fit_poly_raw2 <- lm(wage ~ age + I(age^2) + I(age^3) + I(age^4), data = Wage)
+summary(fit_poly_raw2)
+```
+
+Wersja ortogonalna (`poly` bez `raw`) ułatwia interpretację testów kolejnych stopni; surowe współczynniki odpowiadają bezpośrednio potęgom `age`.
+
+# Wykres dopasowania z pasmami błędu standardowego
+
+```{r plot-poly-se, fig.height=5}
+pred_poly <- predict(fit_poly, list(age = age_grid), se.fit = TRUE)
+se_bands <- cbind(
+  pred_poly$fit + 2 * pred_poly$se.fit,
+  pred_poly$fit - 2 * pred_poly$se.fit
+)
+plot(Wage$age, Wage$wage, col = "darkgrey", cex = 0.5, xlim = age_lims,
+     xlab = "age", ylab = "wage")
+lines(age_grid, pred_poly$fit, col = "red", lwd = 2)
+matlines(age_grid, se_bands, col = "red", lty = "dashed")
+```
+
+# Regresja logistyczna wielomianowa
+
+Klasyfikacja: duże zarobki (`wage > 250`, skala jak w ISLR) vs pozostali; predyktor `age` z potęgami do 4.
+
+```{r log-poly-fit}
+fit_log_poly <- glm(I(wage > 250) ~ poly(age, 4), data = Wage, family = binomial)
+summary(fit_log_poly)
+```
+
+`predict.glm` na skali logitu — pasma SE przekształcamy `plogis`.
+
+```{r log-poly-plot, fig.height=5}
+pred_log_poly <- predict(fit_log_poly, list(age = age_grid), se.fit = TRUE)
+pred_probs <- plogis(pred_log_poly$fit)
+se_bands_logit <- cbind(
+  pred_log_poly$fit + 2 * pred_log_poly$se.fit,
+  pred_log_poly$fit - 2 * pred_log_poly$se.fit
+)
+se_bands_log <- plogis(se_bands_logit)
+plot(Wage$age, I(Wage$wage > 250), xlim = age_lims, ylim = c(0, 1),
+     col = "darkgrey", cex = 0.5, ylab = "P(wage > 250 | age)", xlab = "age")
+lines(age_grid, pred_probs, col = "red", lwd = 2)
+matlines(age_grid, se_bands_log, lty = "dashed", col = "red")
+```
+
+„Powiększenie” — np. `ylim = c(0, 0.2)` — ułatwia zobaczenie małych prawdopodobieństw w środkowym wieku.
+
+```{r log-poly-plot-zoom, fig.height=5}
+plot(Wage$age, I(Wage$wage > 250), xlim = age_lims, ylim = c(0, 0.2),
+     col = "darkgrey", cex = 0.5, ylab = "P(wage > 250 | age)", xlab = "age")
+lines(age_grid, pred_probs, col = "red", lwd = 2)
+matlines(age_grid, se_bands_log, lty = "dashed", col = "red")
+```
+
+# Funkcje schodkowe
+
+```{r cut-table}
+table(cut(Wage$age, breaks = 4))
+```
+
+```{r step-fit-plot, fig.height=5}
+fit_step <- lm(wage ~ cut(age, 4), data = Wage)
+pred_step <- predict(fit_step, list(age = age_grid), se.fit = TRUE)
+se_bands_step <- cbind(
+  pred_step$fit + 2 * pred_step$se.fit,
+  pred_step$fit - 2 * pred_step$se.fit
+)
+plot(Wage$age, Wage$wage, col = "darkgrey", cex = 0.5, xlim = age_lims,
+     xlab = "age", ylab = "wage")
+lines(age_grid, pred_step$fit, col = "red", lwd = 2)
+matlines(age_grid, se_bands_step, col = "red", lty = "dashed")
+```
+
+# Funkcje sklejane — `bs()`
+
+Domyślny stopień splajnu to 3. Model z ustalonymi węzłami:
+
+```{r bs-knots, fig.height=5}
+fit_bs_knots <- lm(wage ~ bs(age, knots = c(25, 40, 60)), data = Wage)
+pred_bs_knots <- predict(fit_bs_knots, list(age = age_grid), se.fit = TRUE)
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey", xlab = "age", ylab = "wage")
+lines(age_grid, pred_bs_knots$fit, col = "red", lwd = 2)
+lines(age_grid, pred_bs_knots$fit + 2 * pred_bs_knots$se.fit, col = "red", lty = "dashed")
+lines(age_grid, pred_bs_knots$fit - 2 * pred_bs_knots$se.fit, col = "red", lty = "dashed")
+abline(v = c(25, 40, 60), lty = "dotted")
+```
+
+## Wpływ położenia węzłów
+
+Porównanie dwóch zestawów węzłów wewnętrznych + `AIC` (niższe — lepsze dopaszenie z karą za złożoność):
+
+```{r bs-knots-compare, fig.height=5}
+k_sets <- list(
+  c(25, 40, 60),
+  c(30, 45, 55),
+  c(35, 50)
+)
+fits_k <- lapply(k_sets, function(k) lm(wage ~ bs(age, knots = k), data = Wage))
+aic_k <- sapply(fits_k, AIC)
+names(aic_k) <- vapply(k_sets, function(k) paste(k, collapse = ","), "")
+aic_k
+
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey", xlab = "age", ylab = "wage")
+cols <- c("red", "blue", "darkgreen")
+for (i in seq_along(fits_k)) {
+  p <- predict(fits_k[[i]], list(age = age_grid))
+  lines(age_grid, p, col = cols[i], lwd = 2)
+}
+legend("topright", legend = names(aic_k), col = cols, lty = 1, lwd = 2, cex = 0.8)
+```
+
+Inne węzły zmieniają lokalizację „załamań” krzywej; `AIC` pozwala porównać kompromis dopasowanie–złożoność między specyfikacjami o tej samej liczbie baz.
+
+Model z automatycznym rozmieszczeniem węzłów przy ustalonej liczbie stopni swobody:
+
+```{r bs-df, fig.height=5}
+fit_bs_df <- lm(wage ~ bs(age, df = 6), data = Wage)
+pred_bs_df <- predict(fit_bs_df, list(age = age_grid), se.fit = TRUE)
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey", xlab = "age", ylab = "wage")
+lines(age_grid, pred_bs_df$fit, col = "red", lwd = 2)
+lines(age_grid, pred_bs_df$fit + 2 * pred_bs_df$se.fit, col = "red", lty = "dashed")
+lines(age_grid, pred_bs_df$fit - 2 * pred_bs_df$se.fit, col = "red", lty = "dashed")
+bs_knots <- attr(bs(Wage$age, df = 6), "knots")
+abline(v = bs_knots, lty = "dotted")
+```
+
+## Wpływ liczby stopni swobody (`df`) dla `bs`
+
+```{r bs-df-sweep}
+dfs <- c(4, 6, 10)
+fits_bs_df <- lapply(dfs, function(d) lm(wage ~ bs(age, df = d), data = Wage))
+aic_bs <- sapply(fits_bs_df, AIC)
+names(aic_bs) <- paste0("df=", dfs)
+aic_bs
+```
+
+```{r bs-df-sweep-plot, fig.height=5}
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey", xlab = "age", ylab = "wage")
+cl <- rainbow(length(dfs))
+for (i in seq_along(dfs)) {
+  pr <- predict(fits_bs_df[[i]], list(age = age_grid))
+  lines(age_grid, pr, col = cl[i], lwd = 2)
+}
+legend("topleft", legend = names(aic_bs), col = cl, lty = 1, lwd = 2, cex = 0.85)
+```
+
+Większe `df` — bardziej „giętka” krzywa i zwykle niższe RSS na próbie, przy ryzyku przeuczenia.
+
+## Stopień wielomianów w `bs` (`degree`)
+
+```{r bs-degree, fig.height=5}
+fit_d1 <- lm(wage ~ bs(age, knots = c(25, 40, 60), degree = 1), data = Wage)
+fit_d3 <- lm(wage ~ bs(age, knots = c(25, 40, 60), degree = 3), data = Wage)
+AIC(fit_d1, fit_d3)
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey", xlab = "age", ylab = "wage")
+lines(age_grid, predict(fit_d1, list(age = age_grid)), col = "blue", lwd = 2)
+lines(age_grid, predict(fit_d3, list(age = age_grid)), col = "red", lwd = 2)
+legend("topright", legend = c("degree = 1 (liniowe odcinki)", "degree = 3 (domyślne)"),
+       col = c("blue", "red"), lty = 1, lwd = 2)
+```
+
+`degree = 1` daje ciągłą, „łamaną” krzywą liniową między węzłami; wyższy stopień zwiększa gładkość między węzłami.
+
+# Naturalne funkcje sklejane — `ns()`
+
+```{r ns-fit, fig.height=5}
+fit_ns <- lm(wage ~ ns(age, df = 4), data = Wage)
+pred_ns <- predict(fit_ns, list(age = age_grid), se.fit = TRUE)
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey", xlab = "age", ylab = "wage")
+lines(age_grid, pred_ns$fit, col = "red", lwd = 2)
+lines(age_grid, pred_ns$fit + 2 * pred_ns$se.fit, col = "red", lty = "dashed")
+lines(age_grid, pred_ns$fit - 2 * pred_ns$se.fit, col = "red", lty = "dashed")
+abline(v = attr(ns(Wage$age, df = 4), "knots"), lty = "dotted")
+```
+
+## Wpływ `df` dla `ns`
+
+```{r ns-df-sweep}
+dfs_ns <- c(3, 4, 6)
+fits_ns <- lapply(dfs_ns, function(d) lm(wage ~ ns(age, df = d), data = Wage))
+aic_ns <- sapply(fits_ns, AIC)
+names(aic_ns) <- paste0("df=", dfs_ns)
+aic_ns
+```
+
+Naturalne splajny dodatkowo narzucają liniowość poza zakresem danych — często stabilniejsze na brzegach niż zwykłe `bs`.
+
+# Wygładzające funkcje sklejane — `smooth.spline`
+
+```{r smooth-df, fig.height=5}
+fit_smooth_df <- smooth.spline(Wage$age, Wage$wage, df = 16)
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey", xlab = "age", ylab = "wage")
+lines(fit_smooth_df, col = "red", lwd = 2)
+```
+
+```{r smooth-cv, fig.height=5}
+fit_smooth_cv <- smooth.spline(Wage$age, Wage$wage, cv = TRUE)
+fit_smooth_cv$df
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey", xlab = "age", ylab = "wage")
+lines(fit_smooth_cv, col = "red", lwd = 2)
+```
+
+Walidacja krzyżowa wybiera efektywną liczbę stopni swobody (tu około wartości wypisanej powyżej).
+
+# Regresja lokalna — `loess`
+
+Domyślnie lokalne wielomiany stopnia 2; parametr `span` kontroluje szerokość okna.
+
+```{r loess-deg2, fig.height=5}
+spans <- c(0.2, 0.5)
+clrs <- c("red", "blue")
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey", xlab = "age", ylab = "wage")
+for (i in seq_along(spans)) {
+  fit_loess <- loess(wage ~ age, span = spans[i], data = Wage)
+  pred_loess <- predict(fit_loess, data.frame(age = age_grid))
+  lines(age_grid, pred_loess, col = clrs[i], lwd = 2)
+}
+legend("topright", legend = paste("s =", spans), col = clrs, lty = 1, lwd = 2)
+```
+
+To samo z `degree = 1`:
+
+```{r loess-deg1, fig.height=5}
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey", xlab = "age", ylab = "wage")
+for (i in seq_along(spans)) {
+  fit_loess <- loess(wage ~ age, span = spans[i], degree = 1, data = Wage)
+  pred_loess <- predict(fit_loess, data.frame(age = age_grid))
+  lines(age_grid, pred_loess, col = clrs[i], lwd = 2)
+}
+legend("topright", legend = paste("s =", spans), col = clrs, lty = 1, lwd = 2)
+```
+
+# Uogólnione modele addytywne (GAM)
+
+## GAM dopasowany metodą najmniejszych kwadratów (`lm` + `ns`)
+
+```{r gam-ls}
+fit_gam_ls <- lm(
+  wage ~ ns(year, df = 4) + ns(age, df = 5) + education,
+  data = Wage
+)
+fit_gam_ls
+summary(fit_gam_ls)
+```
+
+Dla modelu z `lm` jawne wywołanie `plot.Gam` z pakietu `gam`:
+
+```{r gam-ls-plot, fig.width=8, fig.height=3.5}
+par(mfrow = c(1, 3))
+plot.Gam(fit_gam_ls, col = "red", se = TRUE)
+par(mfrow = c(1, 1))
+```
+
+## GAM — algorytm wsteczny, pakiet `gam`
+
+```{r gam-bf}
+fit_gam_bf <- gam(wage ~ s(year, df = 4) + s(age, df = 5) + education, data = Wage)
+summary(fit_gam_bf)
+```
+
+```{r gam-bf-plot, fig.width=8, fig.height=3.5}
+par(mfrow = c(1, 3))
+plot(fit_gam_bf, col = "red", se = TRUE)
+par(mfrow = c(1, 1))
+```
+
+## Porównanie modeli — `anova`
+
+```{r gam-anova}
+fit_gam_1 <- gam(wage ~ s(age, df = 5) + education, data = Wage)
+fit_gam_2 <- gam(wage ~ year + s(age, df = 5) + education, data = Wage)
+anova(fit_gam_1, fit_gam_2, fit_gam_bf, test = "F")
+```
+
+## GAM z lokalną regresją `lo()`
+
+```{r gam-lo}
+fit_gam_lo <- gam(
+  wage ~ s(year, df = 4) + lo(age, span = 0.7) + education,
+  data = Wage
+)
+summary(fit_gam_lo)
+```
+
+```{r gam-lo-plot, fig.width=8, fig.height=3.5}
+par(mfrow = c(1, 3))
+plot(fit_gam_lo, col = "green", se = TRUE)
+par(mfrow = c(1, 1))
+```
+
+# GAM w GLM — regresja logistyczna
+
+```{r gam-logistic}
+fit_logistic_gam <- gam(
+  I(wage > 250) ~ year + s(age, df = 5) + education,
+  family = binomial,
+  data = Wage
+)
+summary(fit_logistic_gam)
+```
+
+```{r gam-logistic-plot, fig.width=8, fig.height=3.5}
+par(mfrow = c(1, 3))
+plot(fit_logistic_gam, col = "blue", se = TRUE)
+par(mfrow = c(1, 1))
+```

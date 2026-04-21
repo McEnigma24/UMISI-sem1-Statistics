@@ -1,0 +1,181 @@
+Modele nieliniowe
+Semestr letni 2025/26
+Modele nieliniowe
+Używamy zbioru danych Wage z pakietu ISLR.
+
+Regresja wielomianowa
+Regresja wielomianowa stopnia 4 wage względem age.
+
+fit_poly <- lm(wage ~ poly(age, 4), data = Wage)
+summary(fit_poly)
+To samo z użyciem standardowej bazy wielomianów X,X2,X3,X4
+.
+
+fit_poly_raw <- lm(wage ~ poly(age, 4, raw = TRUE), data = Wage)
+summary(fit_poly_raw)
+To samo, co powyżej, inaczej zapisane
+
+fit_poly_raw <- lm(wage ~ age + I(age^2) + I(age^3) + I(age^4), data = Wage)
+summary(fit_poly_raw)
+Obrazek dopasowania zawierający krzywe błędu standardowego.
+
+age_lims <- range(Wage$age)
+age_grid <- seq(age_lims[1], age_lims[2])
+pred_poly <- predict(fit_poly, list(age = age_grid), se.fit = TRUE)
+se_bands <- cbind(pred_poly$fit + 2 * pred_poly$se.fit,
+                  pred_poly$fit - 2 * pred_poly$se.fit)
+plot(Wage$age, Wage$wage, col = "darkgrey", cex = 0.5, xlim = age_lims)
+lines(age_grid, pred_poly$fit, col = "red", lwd = 2)
+matlines(age_grid, se_bands, col = "red", lty = "dashed")
+Regresja logistyczna wielomianowa
+Chcemy skonstruować klasyfikator z dwoma klasami: dużo zarabiających (więcej niż 250 000 dolarów: warunek wage > 250) i mało zarabiających (pozostali). Predyktorem jest age, ale chcemy też uwzględnić wpływ wyższych potęg (do 4) tej zmiennej.
+
+fit_log_poly <- glm(I(wage > 250) ~ poly(age, 4), data = Wage, family = binomial)
+Funkcja predict.glm() standardowo zwraca szanse logarytmiczne, co jest korzystne z punktu widzenia zobrazowania błędu standardowego. Musimy jednak otrzymane wartości przekształcić funkcją logistyczną.
+
+pred_log_poly <- predict(fit_log_poly, list(age = age_grid), se.fit = TRUE)
+pred_probs <- plogis(pred_log_poly$fit)
+se_bands_logit <- cbind(pred_log_poly$fit + 2 * pred_log_poly$se.fit,
+                        pred_log_poly$fit - 2 * pred_log_poly$se.fit)
+se_bands <- plogis(se_bands_logit)
+plot(Wage$age, I(Wage$wage > 250), xlim = age_lims, ylim = c(0, 1),
+     col = "darkgrey", cex = 0.5, ylab = "P(wage > 250 | age)")
+lines(age_grid, pred_probs, col = "red", lwd = 2)
+matlines(age_grid, se_bands, lty = "dashed", col = "red")
+“Powiększenie” rysunku można uzyskać np. ograniczając zakres y (parametr ylim).
+
+Funkcje schodkowe
+Dopasowanie funkcji schodkowej wykonujemy przy pomocy funkcji cut() przekształcającej zmienną numeryczną w czynnik uporządkowany.
+
+table(cut(Wage$age, breaks = 4))
+Samo dopasowanie wykonuje funkcja lm().
+
+fit_step <- lm(wage ~ cut(age, 4), data = Wage)
+pred_step <- predict(fit_step, list(age = age_grid), se.fit = TRUE)
+se_bands <- cbind(pred_step$fit + 2 * pred_step$se.fit,
+                  pred_step$fit - 2 * pred_step$se.fit)
+plot(Wage$age, Wage$wage, col = "darkgrey", cex = 0.5, xlim = age_lims)
+lines(age_grid, pred_step$fit, col = "red", lwd = 2)
+matlines(age_grid, se_bands, col = "red", lty = "dashed")
+Funkcje sklejane
+Bazę regresyjnych funkcji sklejanych wylicza funkcja bs() z pakietu splines. Domyślnym stopniem funkcji sklejanych jest 3.
+
+Regresja z użyciem funkcji sklejanych z ustalonymi węzłami.
+
+fit_bs_knots <- lm(wage ~ bs(age, knots = c(25, 40, 60)), data = Wage)
+pred_bs_knots <- predict(fit_bs_knots, list(age = age_grid), se.fit = TRUE)
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey")
+lines(age_grid, pred_bs_knots$fit, col = "red", lwd = 2)
+lines(age_grid, pred_bs_knots$fit + 2 * pred_bs_knots$se.fit, col = "red",
+      lty = "dashed")
+lines(age_grid, pred_bs_knots$fit - 2 * pred_bs_knots$se.fit, col = "red",
+      lty = "dashed")
+abline(v = c(25, 40, 60), lty = "dotted")
+[Sprawdź jak ustawienie węzłów wpływa na dopasowany model.]
+
+Dopasowanie modelu wykorzystującego funkcje sklejane o ustalonej liczbie stopni swobody. Węzły są rozmieszczane automatycznie.
+
+fit_bs_df <- lm(wage ~ bs(age, df = 6), data = Wage)
+pred_bs_df <- predict(fit_bs_df, list(age = age_grid), se.fit = TRUE)
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey")
+lines(age_grid, pred_bs_df$fit, col = "red", lwd = 2)
+lines(age_grid, pred_bs_df$fit + 2 * pred_bs_df$se.fit, col = "red",
+      lty = "dashed")
+lines(age_grid, pred_bs_df$fit - 2 * pred_bs_df$se.fit, col = "red",
+      lty = "dashed")
+bs_knots <- attr(bs(Wage$age, df = 6), "knots")
+abline(v = bs_knots, lty = "dotted")
+[Sprawdź jak liczba stopni swobody wpływa na dopasowany model.]
+
+[Funkcja bs() akceptuje parametr degree, który ustala stopień funkcji sklejanej. Sprawdź jak w powyższych przykładach wyglądają funkcje sklejane innych stopni.]
+
+Naturalne funkcje sklejane
+Bazę naturalnych sześciennych funkcji sklejanych wyznacza funkcja ns() z pakietu splines.
+
+fit_ns <- lm(wage ~ ns(age, df = 4), data = Wage)
+pred_ns <- predict(fit_ns, list(age = age_grid), se.fit = TRUE)
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey")
+lines(age_grid, pred_ns$fit, col = "red", lwd = 2)
+lines(age_grid, pred_ns$fit + 2 * pred_ns$se.fit, col = "red",
+      lty = "dashed")
+lines(age_grid, pred_ns$fit - 2 * pred_ns$se.fit, col = "red",
+      lty = "dashed")
+abline(v = attr(ns(Wage$age, df = 4), "knots"), lty = "dotted")
+[Sprawdź jak liczba stopni swobody wpływa na dopasowany model.]
+
+Wygładzające funkcje sklejane
+Dopasowanie wygładzającej (sześciennej) funkcji sklejanej do danych wykonuje funkcja smooth.spline(). Możemy dopasować wygładzającą funkcję sklejaną o ustalonej liczbie stopni swobody (tu 16).
+
+fit_smooth_df <- smooth.spline(Wage$age, Wage$wage, df = 16)
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey")
+lines(fit_smooth_df, col = "red", lwd = 2)
+Można też liczbę stopni swobody wyznaczyć automatycznie korzystając z walidacji krzyżowej.
+
+fit_smooth_cv <- smooth.spline(Wage$age, Wage$wage, cv = TRUE)
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey")
+lines(fit_smooth_cv, col = "red", lwd = 2)
+Regresja lokalna
+Regresję lokalną (domyślnie wielomianami stopnia 2) wykonuje funkcja loess(). Parametr funkcji o nazwie span odpowiada parametrowi metody s
+.
+
+spans <- c(0.2, 0.5)
+clrs <- c("red", "blue")
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey")
+for (i in 1:length(spans)) {
+   fit_loess <- loess(wage ~ age, span = spans[i], data = Wage)
+   pred_loess <- predict(fit_loess, data.frame(age = age_grid))
+   lines(age_grid, pred_loess, col = clrs[i], lwd = 2)
+}
+legend("topright", legend = paste("s =", spans), col = clrs, lty = 1, lwd = 2)
+To samo dla wielomianów stopnia 1.
+
+spans <- c(0.2, 0.5)
+clrs <- c("red", "blue")
+plot(Wage$age, Wage$wage, cex = 0.5, col = "darkgrey")
+for (i in 1:length(spans)) {
+   fit_loess <- loess(wage ~ age, span = spans[i], degree = 1, data = Wage)
+   pred_loess <- predict(fit_loess, data.frame(age = age_grid))
+   lines(age_grid, pred_loess, col = clrs[i], lwd = 2)
+}
+legend("topright", legend = paste("s =", spans), col = clrs, lty = 1, lwd = 2)
+Uogólnione modele addytywne (GAMs)
+GAM będący rozwinięciem modelu liniowego może być uczony metodą najmniejszych kwadratów przy pomocy funkcji lm().
+
+fit_gam_ls <- lm(wage ~ ns(year, df = 4) + ns(age, df = 5) + education,
+                 data = Wage)
+fit_gam_ls
+summary(fit_gam_ls)
+Ogólniejsze GAM są uczone przy pomocy algorytmu dopasowania wstecznego w funkcji gam() z pakietu gam. Pakiet gam zawiera też funkcje implementujące modele nieparametryczne: s() reprezentującą wygładzające funkcje sklejane i lo() reprezentującą lokalną regresję.
+
+Dopasowanie modelu podobnego do poprzedniego, ale z użyciem wygładzających funkcji sklejanych.
+
+fit_gam_bf <- gam(wage ~ s(year, df = 4) + s(age, df = 5) + education, data = Wage)
+summary(fit_gam_bf)
+Wykres dla modelu dopasowanego funkcją gam().
+
+par(mfrow = c(1, 3))
+plot(fit_gam_bf, col = "red", se = TRUE)
+Funkcja plot.Gam() działa też dla modeli metody najmniejszych kwadratów, ale wówczas trzeba się do niej odwołać jawnie.
+
+par(mfrow = c(1, 3))
+plot.Gam(fit_gam_ls, col = "red", se = TRUE)
+Istnieje wersja funkcji anova() porównująca GAMs.
+
+fit_gam_1 <- gam(wage ~ s(age, df = 5) + education, data = Wage)
+fit_gam_2 <- gam(wage ~ year + s(age, df = 5) + education, data = Wage)
+anova(fit_gam_1, fit_gam_2, fit_gam_bf, test = "F")
+Dopasowanie modelu wykorzystującego lokalną regresję.
+
+fit_gam_lo <- gam(wage ~ s(year, df = 4) + lo(age, span = 0.7) + education,
+                  data = Wage)
+summary(fit_gam_lo)
+par(mfrow = c(1, 3))
+plot(fit_gam_lo, col = "green", se = TRUE)
+GAM w GLM
+Regresja logistyczna wykorzystująca GAM
+
+fit_logistic_gam <- gam(I(wage > 250) ~ year + s(age, df = 5) + education,
+                        family = binomial, data = Wage)
+summary(fit_logistic_gam)
+par(mfrow = c(1, 3))
+plot(fit_logistic_gam, col = "blue", se = TRUE)
