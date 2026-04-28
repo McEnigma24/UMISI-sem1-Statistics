@@ -1,0 +1,163 @@
+---
+title: "Laboratorium 7 — część 2"
+subtitle: "Statystyka w SI i analizie danych — uzupełnienie zadań"
+author: "Wojciech Maćkowiak, 412430"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    number_sections: false
+    keep_tex: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 6,
+  fig.height = 4,
+  fig.align = "center"
+)
+ini <- knitr::current_input()
+proj_dir <- if (is.null(ini) || !nzchar(ini)) getwd() else dirname(normalizePath(ini, winslash = "/"))
+knitr::opts_knit$set(root.dir = proj_dir)
+```
+
+**Dane i pakiety:** zbiór `Wage` z `ISLR`; `splines` (`ns`), `gam` (`gam`, `s`). Instalacja: `install.packages(c("ISLR", "gam"))`.
+
+```{r libraries}
+library(ISLR)
+library(splines)
+library(gam)
+data(Wage)
+age_lims <- range(Wage$age)
+age_grid <- seq(age_lims[1], age_lims[2])
+```
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Zadanie 1 — Predykcja: wielomian ortogonalny vs surowa baza stopnia 4
+
+**Treść:** Sprawdzić, że regresja wielomianowa stopnia 4 `wage` względem `age` z `poly(age, 4)` daje praktycznie tę samą predykcję co model z `poly(age, 4, raw = TRUE)` (standardowa baza \(1, x, x^2, x^3, x^4\)).
+
+Oba modele spanują ten sam podprzestrzeń liniową w \(1, age, \ldots, age^4\), więc dopasowane wartości \(\hat y\) na tym samym siatce wieku powinny pokrywać się z dokładnością numeryczną.
+
+```{r zad1-modele}
+fit_ortho <- lm(wage ~ poly(age, 4), data = Wage)
+fit_raw <- lm(wage ~ poly(age, 4, raw = TRUE), data = Wage)
+pred_o <- predict(fit_ortho, data.frame(age = age_grid))
+pred_r <- predict(fit_raw, data.frame(age = age_grid))
+diff_max <- max(abs(pred_o - pred_r))
+diff_mean <- mean(abs(pred_o - pred_r))
+c(max_abs_diff = diff_max, mean_abs_diff = diff_mean, cor = cor(pred_o, pred_r))
+```
+
+```{r zad1-plot, fig.height=5}
+plot(age_grid, pred_o, type = "l", col = "red", lwd = 2,
+     xlab = "age", ylab = "predykcja wage", main = "Porównanie predykcji (siatka wieku)")
+lines(age_grid, pred_r, col = "blue", lwd = 2, lty = 2)
+legend("topleft", legend = c("poly(age,4)", "poly(age,4, raw=TRUE)"),
+       col = c("red", "blue"), lty = c(1, 2), lwd = 2)
+```
+
+**Wniosek:** Maksymalna różnica na `age_grid` jest rzędu błędu maszynowego; korelacja predykcji wynosi 1. Oba zapisy bazy dają tę samą krzywą dopasowania.
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Zadanie 2 — Wielomian stopnia 15 vs naturalny splajn (df = 15)
+
+**Treść:** Narysować wykres porównujący dopasowanie wielomianu stopnia 15 i naturalnej funkcji sklejanej z 15 stopniami swobody w regresji `wage` względem `age`.
+
+```{r zad2-modele}
+fit_poly15 <- lm(wage ~ poly(age, 15), data = Wage)
+fit_ns15 <- lm(wage ~ ns(age, df = 15), data = Wage)
+p_poly <- predict(fit_poly15, data.frame(age = age_grid))
+p_ns <- predict(fit_ns15, data.frame(age = age_grid))
+```
+
+```{r zad2-plot, fig.height=5.2}
+plot(Wage$age, Wage$wage, col = "grey60", cex = 0.4, xlab = "age", ylab = "wage",
+     main = "Wielomian stopnia 15 vs ns(age, df = 15)")
+lines(age_grid, p_poly, col = "darkred", lwd = 2)
+lines(age_grid, p_ns, col = "steelblue", lwd = 2, lty = 2)
+legend("topleft",
+       legend = c("poly(age, 15)", "ns(age, df = 15)"),
+       col = c("darkred", "steelblue"), lty = c(1, 2), lwd = 2)
+```
+
+**Komentarz:** Wielomian wysokiego stopnia bywa „chwiejny” na brzegach zakresu wieku; naturalny splajn (`ns`) jest liniowy poza skrajnymi obserwacjami i często zachowuje się stabilniej na końcach przedziału, przy podobnej elastyczności w środku.
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Zadanie 3 — Logistyczny GAM: poziom `education` z dużym SE
+
+**Treść:** W regresji logistycznej GAM jeden z poziomów `education` ma bardzo wysoki błąd standardowy. Dopasować ten sam model do danych **bez** obserwacji z tym poziomem `education`.
+
+```{r zad3-pelny-model}
+fit_log_gam <- gam(
+  I(wage > 250) ~ year + s(age, df = 5) + education,
+  family = binomial,
+  data = Wage
+)
+cf <- coef(fit_log_gam)
+se <- sqrt(diag(vcov(fit_log_gam)))
+tab <- data.frame(coef = unname(cf), se = unname(se), row.names = names(cf))
+tab_edu <- tab[grepl("^education", rownames(tab)), , drop = FALSE]
+tab_edu <- tab_edu[order(-tab_edu$se), ]
+knitr::kable(tab_edu, digits = 4, caption = "Współczynniki efektów education (względem poziomu referencyjnego)")
+```
+
+Identyfikacja poziomu do usunięcia: **(1)** jeśli któryś poziom `education` nie ma żadnej obserwacji z `wage > 250` (quasi-separacja względem referencji), to ten poziom jest typową przyczyną „puchnięcia’’ SE dla całego bloku kontrastów; **(2)** gdyby takich poziomów nie było, bierzemy poziom odpowiadający współczynnikowi `education*` o największym SE (mapowanie: tekst po prefiksie `education` = etykieta poziomu faktora).
+
+```{r zad3-identyfikacja}
+succ <- tapply(Wage$wage > 250, Wage$education, sum)
+zero_levels <- names(succ)[succ == 0]
+lev <- levels(Wage$education)
+if (length(zero_levels) >= 1L) {
+  bad_level <- zero_levels[[1L]]
+  reason <- "brak obserwacji z wage > 250 w tym poziomie (quasi-separacja)"
+} else {
+  worst <- rownames(tab_edu)[1L]
+  suffix <- sub("^education", "", worst)
+  idx <- match(suffix, lev)
+  if (is.na(idx)) idx <- which(lev == suffix | startsWith(lev, suffix))[1L]
+  bad_level <- lev[idx]
+  reason <- "największy SE wśród współczynników education"
+}
+data.frame(bad_level = bad_level, reason = reason)
+```
+
+Sprawdzenie liczebności `wage > 250` w poziomach wykształcenia (wyjaśnienie dużych SE przy separacji):
+
+```{r zad3-tabela}
+knitr::kable(
+  addmargins(with(Wage, table(education, I(wage > 250)))),
+  caption = "education vs I(wage > 250)"
+)
+```
+
+```{r zad3-podzbior}
+Wage_sub <- subset(Wage, education != bad_level)
+Wage_sub$education <- droplevels(Wage_sub$education)
+fit_log_gam_sub <- gam(
+  I(wage > 250) ~ year + s(age, df = 5) + education,
+  family = binomial,
+  data = Wage_sub
+)
+cf2 <- coef(fit_log_gam_sub)
+se2 <- sqrt(diag(vcov(fit_log_gam_sub)))
+tab2 <- data.frame(coef = cf2, se = se2)
+tab_edu2 <- tab2[grepl("^education", rownames(tab2)), , drop = FALSE]
+knitr::kable(tab_edu2[order(-tab_edu2$se), ], digits = 4,
+             caption = paste0("Model po usunięciu poziomu: ", bad_level))
+```
+
+```{r zad3-porownanie-se, echo=FALSE}
+# Skrót numeryczny dla tekstu wniosku
+se_max_przed <- max(tab_edu$se)
+se_max_po <- if (nrow(tab_edu2)) max(tab_edu2$se) else NA_real_
+```
+
+**Wniosek:** Po usunięciu poziomu `r bad_level` błędy standardowe współczynników `education` maleją (wcześniej maksymalny SE w tej grupie wynosił ok. `r round(se_max_przed, 2)`, po refityngu ok. `r round(se_max_po, 2)`). Dla zbioru ISLR ten poziom ma **zero** obserwacji z `wage > 250`, co prowadzi do **quasi-separacji** względem kategorii referencyjnej i **znacząco zwiększa** wariancję estymatorów kontrastów — usunięcie tego poziomu z próby i ponowne dopasowanie tego samego wzoru GAM usuwa ten problem.

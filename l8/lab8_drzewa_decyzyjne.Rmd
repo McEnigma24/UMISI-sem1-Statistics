@@ -1,0 +1,366 @@
+---
+title: "Laboratorium 8 — drzewa decyzyjne"
+subtitle: "Statystyka w SI i analizie danych — ćwiczenia i zadania"
+author: "Wojciech Maćkowiak, 412430"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    number_sections: false
+    keep_tex: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 6,
+  fig.height = 4,
+  fig.align = "center"
+)
+ini <- knitr::current_input()
+proj_dir <- if (is.null(ini) || !nzchar(ini)) getwd() else dirname(normalizePath(ini, winslash = "/"))
+knitr::opts_knit$set(root.dir = proj_dir)
+```
+
+**Pakiety:** `rpart`, `rpart.plot`, `ISLR`, `MASS` (`lda`, `qda`), `titanic` (`titanic_train`, `titanic_test`). Instalacja: `install.packages(c("ISLR", "MASS", "rpart", "rpart.plot", "titanic"))`.
+
+```{r libraries}
+library(rpart)
+library(rpart.plot)
+library(ISLR)
+library(MASS)
+```
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Materiał ćwiczeniowy — drzewa klasyfikacyjne (`Carseats`)
+
+```{r carseats-data}
+CarseatsH <-
+  Carseats |>
+  transform(High = factor(ifelse(Sales <= 8, "No", "Yes")))
+head(CarseatsH)
+```
+
+```{r carseats-tree-full}
+sales_high_rpart <- rpart(High ~ . - Sales, data = CarseatsH)
+plot(sales_high_rpart, margin = 0.1, minbranch = 1.5)
+text(sales_high_rpart, pretty = 0)
+```
+
+```{r carseats-rpart-plot}
+rpart.plot(sales_high_rpart)
+```
+
+```{r carseats-rules}
+rpart.rules(sales_high_rpart)
+```
+
+```{r carseats-print}
+sales_high_rpart
+printcp(sales_high_rpart)
+```
+
+Brak wywołania pełnego `summary(sales_high_rpart)` — raport jest bardzo długi; w razie potrzeby można go uruchomić lokalnie.
+
+```{r carseats-train-test}
+set.seed(1)
+n_cs <- nrow(CarseatsH)
+train_cs <- sample(n_cs, 0.8 * n_cs)
+test_cs <- setdiff(seq_len(n_cs), train_cs)
+
+sales_high_big <- rpart(High ~ . - Sales, data = CarseatsH, subset = train_cs)
+sales_high_big_predicted <- predict(sales_high_big, newdata = CarseatsH[test_cs, ], type = "class")
+table(sales_high_big_predicted, CarseatsH$High[test_cs])
+err_big_cs <- mean(sales_high_big_predicted != CarseatsH$High[test_cs])
+err_big_cs
+```
+
+```{r carseats-big-plot, fig.height = 5}
+rpart.plot(sales_high_big)
+plotcp(sales_high_big)
+printcp(sales_high_big)
+```
+
+```{r carseats-prune-min}
+n_min_cs <- which.min(sales_high_big$cptable[, "xerror"])
+cp_min_cs <- sales_high_big$cptable[n_min_cs, "CP"]
+cp_min_cs
+
+sales_high_pruned_min <- prune(sales_high_big, cp = cp_min_cs)
+rpart.plot(sales_high_pruned_min)
+
+sales_high_pruned_min_predicted <- predict(
+  sales_high_pruned_min,
+  newdata = CarseatsH[test_cs, ],
+  type = "class"
+)
+table(sales_high_pruned_min_predicted, CarseatsH$High[test_cs])
+err_pruned_min_cs <- mean(sales_high_pruned_min_predicted != CarseatsH$High[test_cs])
+err_pruned_min_cs
+```
+
+```{r carseats-prune-1se}
+limit_cs <- sum(sales_high_big$cptable[n_min_cs, c("xerror", "xstd")])
+n_1se_cs <- min(which(sales_high_big$cptable[, "xerror"] < limit_cs))
+cp_1se_cs <- sales_high_big$cptable[n_1se_cs, "CP"]
+cp_1se_cs
+
+sales_high_pruned_1se <- prune(sales_high_big, cp = cp_1se_cs)
+rpart.plot(sales_high_pruned_1se)
+
+sales_high_pruned_1se_predicted <- predict(
+  sales_high_pruned_1se,
+  newdata = CarseatsH[test_cs, ],
+  type = "class"
+)
+table(sales_high_pruned_1se_predicted, CarseatsH$High[test_cs])
+err_pruned_1se_cs <- mean(sales_high_pruned_1se_predicted != CarseatsH$High[test_cs])
+err_pruned_1se_cs
+```
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Zadanie 2 — `CarseatsH`: drzewa vs regresja logistyczna, LDA, QDA
+
+Ten sam podział co wyżej (`set.seed(1)`, indeksy `train_cs` / `test_cs`).
+
+```{r zad2-glm-lda-qda}
+glm_high <- glm(
+  High ~ . - Sales,
+  family = binomial,
+  data = CarseatsH,
+  subset = train_cs
+)
+phat <- predict(glm_high, newdata = CarseatsH[test_cs, ], type = "response")
+glm_pred <- ifelse(phat > 0.5, "Yes", "No")
+glm_pred <- factor(glm_pred, levels = c("No", "Yes"))
+err_glm_cs <- mean(glm_pred != CarseatsH$High[test_cs])
+
+lda_high <- lda(High ~ . - Sales, data = CarseatsH, subset = train_cs)
+lda_pred <- predict(lda_high, CarseatsH[test_cs, ])$class
+err_lda_cs <- mean(lda_pred != CarseatsH$High[test_cs])
+
+qda_high <- qda(High ~ . - Sales, data = CarseatsH, subset = train_cs)
+qda_pred <- predict(qda_high, CarseatsH[test_cs, ])$class
+err_qda_cs <- mean(qda_pred != CarseatsH$High[test_cs])
+
+tab_zad2 <- data.frame(
+  model = c(
+    "drzewo pelne (T0)",
+    "drzewo cp_min",
+    "drzewo 1SE",
+    "glm",
+    "lda",
+    "qda"
+  ),
+  blad_testowy = c(
+    err_big_cs,
+    err_pruned_min_cs,
+    err_pruned_1se_cs,
+    err_glm_cs,
+    err_lda_cs,
+    err_qda_cs
+  )
+)
+knitr::kable(tab_zad2, digits = 4, caption = "Porownanie bledu klasyfikacji na zbiorze testowym (CarseatsH)")
+```
+
+**Wniosek:** Wartości błędu zależą od losowego podziału; drzewo pełne bywa lekkim overfittingiem, przycinanie (1 SE) silnie upraszcza model kosztem błędu na teście. GLM, LDA i QDA bazują na różnych założeniach rozkładów — QDA jest najbardziej elastyczna, ale przy małej liczbie obserwacji w klasach może być niestabilna.
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Materiał ćwiczeniowy — drzewa regresyjne (`Boston`)
+
+```{r boston-full}
+medv_rpart <- rpart(medv ~ ., data = Boston)
+rpart.plot(medv_rpart, digits = 4)
+medv_rpart
+printcp(medv_rpart)
+medv_rpart$variable.importance
+```
+
+```{r boston-train-test}
+set.seed(2025)
+n_bo <- nrow(Boston)
+train_bo <- sample(n_bo, 0.8 * n_bo)
+test_bo <- setdiff(seq_len(n_bo), train_bo)
+
+medv_big <- rpart(medv ~ ., data = Boston, subset = train_bo)
+medv_big_pred <- predict(medv_big, newdata = Boston[test_bo, ])
+mse_big_bo <- mean((medv_big_pred - Boston$medv[test_bo])^2)
+mse_big_bo
+```
+
+```{r boston-big-plot, fig.height = 5}
+rpart.plot(medv_big, digits = 4)
+plotcp(medv_big)
+```
+
+```{r boston-cptable}
+medv_big$cptable
+```
+
+```{r boston-prune-1se}
+n_min_bo <- which.min(medv_big$cptable[, "xerror"])
+limit_bo <- sum(medv_big$cptable[n_min_bo, c("xerror", "xstd")])
+n_1se_bo <- min(which(medv_big$cptable[, "xerror"] < limit_bo))
+cp_1se_bo <- medv_big$cptable[n_1se_bo - 1, "CP"]
+medv_pruned <- prune(medv_big, cp = cp_1se_bo)
+rpart.plot(medv_pruned)
+
+medv_pruned_pred <- predict(medv_pruned, newdata = Boston[test_bo, ])
+mse_pruned_bo <- mean((medv_pruned_pred - Boston$medv[test_bo])^2)
+mse_pruned_bo
+```
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Zadanie 1 — `Boston`: drzewa vs regresja liniowa
+
+Ta sama próba ucząca/testowa co dla drzew (`set.seed(2025)`).
+
+```{r zad1-lm}
+lm_medv <- lm(medv ~ ., data = Boston, subset = train_bo)
+lm_pred <- predict(lm_medv, newdata = Boston[test_bo, ])
+mse_lm_bo <- mean((lm_pred - Boston$medv[test_bo])^2)
+
+tab_zad1 <- data.frame(
+  model = c("drzewo pelne", "drzewo przyciete (1 SE)", "regresja liniowa"),
+  MSE_test = c(mse_big_bo, mse_pruned_bo, mse_lm_bo)
+)
+knitr::kable(tab_zad1, digits = 4, caption = "Estymaty MSE na zbiorze testowym (Boston)")
+```
+
+**Wniosek:** Regresja liniowa zakłada addytywną strukturę i często jest bardzo konkurencyjna na gładkich danych; drzewa uchwytują interakcje i progi, ale na tym podziale często wygrywa największe (nieprzycięte) drzewo lub lm — warto porównać obiektywnie liczbami z tabeli.
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Zadanie 3 — Istotność predyktorów: modele liniowe vs drzewo
+
+Porównanie nie jest jednoznaczne: testy \(t\)/\(\chi^2\) w `lm`/`glm` mierzą **marginalny** wpływ przy założonej postaci liniowej (ew. na skali logitu), a `variable.importance` w `rpart` sumuje spadek kryterium rozszczepienia — uwzględnia **interakcje** i progi.
+
+```{r zad3-boston}
+slm <- summary(lm_medv)
+pvals <- coef(slm)[, "Pr(>|t|)"]
+imp_bo <- medv_big$variable.importance
+imp_bo_norm <- 100 * imp_bo / sum(imp_bo)
+
+knitr::kable(
+  data.frame(
+    zmienna = names(pvals)[-1],
+    p_wartosc = unname(pvals[-1]),
+    istotna_05 = unname(pvals[-1]) < 0.05
+  ),
+  digits = 4,
+  caption = "Boston: istotnosc w lm (wszystkie predyktory oprocz intercept)"
+)
+
+knitr::kable(
+  data.frame(
+    zmienna = names(imp_bo_norm),
+    waznosc_proc = round(imp_bo_norm, 2)
+  ),
+  caption = "Boston: variable.importance drzewa (pelne, zbior uczacy), % sumy"
+)
+```
+
+```{r zad3-carseats}
+sglm <- summary(glm_high)
+p_glm <- coef(sglm)[, "Pr(>|z|)"]
+imp_cs <- sales_high_big$variable.importance
+imp_cs_norm <- 100 * imp_cs / sum(imp_cs)
+
+knitr::kable(
+  data.frame(
+    zmienna = rownames(coef(sglm))[-1],
+    p_wartosc = as.numeric(p_glm[-1]),
+    istotna_05 = as.numeric(p_glm[-1]) < 0.05
+  ),
+  digits = 4,
+  caption = "Carseats: istotnosc w glm (bez intercept)"
+)
+
+knitr::kable(
+  data.frame(
+    zmienna = names(imp_cs_norm),
+    waznosc_proc = round(imp_cs_norm, 2)
+  ),
+  caption = "Carseats: variable.importance drzewa (pelne), % sumy"
+)
+```
+
+**Wniosek:** Zmienna może być istotna w modelu liniowym (globalny trend), ale rzadko pojawia się w drzewie, jeśli efekt jest już dobrze wyjaśniony przez inny predyktor lub jest mały w porównaniu z pierwszym podziałem. Odwrotnie — zmienna z dużą ważnością w drzewie może mieć niski \(p\)-wartość w glm, jeśli efekt jest silnie nieliniowy / interakcyjny (drzewo dzieli przestrzeń predyktorów inaczej niż jedna krzywa logitu).
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Zadanie 4 — `Hitters` (walidacja) i Titanic
+
+```{r zad4-hitters}
+set.seed(3030)
+Hitters_clean <- na.omit(Hitters)
+n_h <- nrow(Hitters_clean)
+train_h <- sample(n_h, 0.8 * n_h)
+test_h <- setdiff(seq_len(n_h), train_h)
+
+tree_hit <- rpart(Salary ~ ., data = Hitters_clean, subset = train_h)
+pred_hit <- predict(tree_hit, newdata = Hitters_clean[test_h, ])
+mse_hit <- mean((pred_hit - Hitters_clean$Salary[test_h])^2)
+mse_hit
+
+rpart.plot(tree_hit)
+```
+
+Zbiór `titanic::titanic_test` w pakiecie CRAN **nie zawiera** kolumny `Survived`, więc nie da się policzyć macierzy pomyłek „przeciw prawdzie” na tym pliku bez zewnętrznych etykiet (typowe dla zadań typu Kaggle). Dlatego **jakość klasyfikacji** oceniamy na losowym podzbiorze walidacyjnym wyciętym z `titanic_train` (`set.seed(4040)`). Dodatkowo pokazujemy przykładowe klasy predykowane dla `titanic_test`.
+
+```{r zad4-titanic-prep}
+library(titanic)
+vars_ti <- c("Survived", "Pclass", "Sex", "Age", "SibSp", "Parch", "Fare", "Embarked")
+ti <- na.omit(titanic_train[, vars_ti])
+ti$Survived_f <- factor(ifelse(ti$Survived == 1L, "Yes", "No"))
+ti$Sex <- factor(ti$Sex)
+ti$Embarked <- factor(ti$Embarked)
+ti$Pclass <- factor(ti$Pclass)
+
+set.seed(4040)
+n_ti <- nrow(ti)
+train_i <- sample(n_ti, 0.8 * n_ti)
+test_i <- setdiff(seq_len(n_ti), train_i)
+
+tree_ti <- rpart(
+  Survived_f ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
+  data = ti,
+  subset = train_i
+)
+pred_val <- predict(tree_ti, newdata = ti[test_i, ], type = "class")
+tbl_ti <- table(pred_val, ti$Survived_f[test_i])
+tbl_ti
+err_ti <- mean(pred_val != ti$Survived_f[test_i])
+err_ti
+```
+
+```{r zad4-titanic-test-predict}
+vars_te <- c("Pclass", "Sex", "Age", "SibSp", "Parch", "Fare", "Embarked")
+te_raw <- titanic_test[, vars_te]
+te_raw$Sex <- factor(te_raw$Sex, levels = levels(ti$Sex))
+te_raw$Embarked <- factor(te_raw$Embarked, levels = levels(ti$Embarked))
+te_raw$Pclass <- factor(te_raw$Pclass, levels = levels(ti$Pclass))
+
+pred_test <- predict(tree_ti, newdata = te_raw, type = "class")
+head(data.frame(passenger_id = titanic_test$PassengerId, pred_Survived = pred_test), 12)
+```
+
+```{r zad4-titanic-plot, fig.height = 5}
+rpart.plot(tree_ti)
+```
+
+**Wniosek:** Dla `Hitters` MSE na zbiorze walidacyjnym ocenia jakość prognozy `Salary`. Dla Titanica drzewo dopasowujemy na części `titanic_train`; błąd klasyfikacji raportujemy na **holdoucie** z tego samego zbioru. `titanic_test` służy do ilustracji predykcji na nowych obserwacjach (bez etykiet w pakiecie); pełna ocena wymagałaby pliku z rozwiązaniami zewnętrznymi.
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Podsumowanie
+
+Przedstawiono drzewa klasyfikacyjne i regresyjne (`rpart`), przycinanie kosztem złożoności oraz porównania z modelami liniowymi i generatywnymi (LDA/QDA). Istotność predyktorów różni się między podejściami parametrycznymi a nieparametrycznym podziałem przestrzeni; na konkretnych zbiorach (`Boston`, `Carseats`, `Hitters`, Titanic) jakość predykcji należy oceniać liczbami na jednolitym podziale train/test.

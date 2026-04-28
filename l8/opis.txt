@@ -1,0 +1,33 @@
+Laboratorium 8 — drzewa decyzyjne (UMISI, statystyka)
+======================================================
+
+Zawartosc folderu
+-----------------
+  task.txt                  — tresc zadan z wykladu (PDF/skrypt)
+  lab8_drzewa_decyzyjne.Rmd — sprawozdanie: kod z cwiczenia + zadania 1–4
+  lab8_drzewa_decyzyjne.pdf — wygenerowany PDF (sprawko), po renderze Rmd
+
+Autor (w YAML Rmd): Wojciech Maćkowiak, 412430
+
+Pakiety R (instalacja jednorazowa)
+----------------------------------
+  install.packages(c(
+    "ISLR", "MASS", "rpart", "rpart.plot", "titanic", "rmarkdown", "knitr"
+  ))
+
+  Pakiety bazowe: stats, graphics (zwykle z R).
+
+Jak wygenerowac PDF ze sprawozdania
+-----------------------------------
+  W katalogu l8 w R lub RStudio:
+
+    rmarkdown::render("lab8_drzewa_decyzyjne.Rmd")
+
+  Wymagany jest LaTeX z silnikiem xelatex (np. MiKTeX / TeX Live). W YAML
+  dokumentu ustawiono: latex_engine: xelatex.
+
+Uwaga do zadania Titanic
+------------------------
+  Zbior titanic::titanic_test w pakiecie CRAN nie zawiera kolumny Survived,
+  wiec w Rmd blad klasyfikacji liczony jest na holdoucie z titanic_train;
+  dla titanic_test pokazano przykladowe predykcje (klasy Yes/No).

@@ -1,0 +1,5 @@
+Sprawdź, że regresja wielomianowa stopnia 4 wage względem age używająca wielomianów ortogonalnych daje praktycznie taką samą predykcję, jak regresja używająca standardowej bazy wielomianów.
+
+Narysuj wykres porównujący dopasowanie wielomianu stopnia 15 i naturalnej funkcji sklejanej z 15 stopniami swobody w regresji wage względem age.
+
+W regresji logistycznej wykorzystującej GAM jeden z poziomów zmiennej education ma bardzo wysoki błąd standardowy. Dopasuj ten sam model regresji logistycznej do danych nie zawierających obserwacji z tym poziomem education.
