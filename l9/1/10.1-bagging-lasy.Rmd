@@ -1,0 +1,263 @@
+---
+title: "Laboratorium 9.1 — bagging i lasy losowe"
+subtitle: "Statystyka w SI i analizie danych — ćwiczenia"
+author: "Wojciech Maćkowiak, 412430"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    number_sections: false
+    keep_tex: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 6,
+  fig.height = 4,
+  fig.align = "center"
+)
+ini <- knitr::current_input()
+proj_dir <- if (is.null(ini) || !nzchar(ini)) getwd() else dirname(normalizePath(ini, winslash = "/"))
+knitr::opts_knit$set(root.dir = proj_dir)
+```
+
+**Pakiety:** `randomForest`, `MASS`, `ISLR`, `plotmo`. Instalacja: `install.packages(c("randomForest", "MASS", "ISLR", "plotmo"))`.
+
+```{r libraries}
+library(randomForest)
+library(MASS)
+library(ISLR)
+library(plotmo)
+```
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Regresja — `Boston`
+
+Otwarta implementacja lasów losowych — i baggingu jako przypadku szczególnego (`mtry` równe liczbie predyktorów) — jest w pakiecie `randomForest`.
+
+```{r boston-head}
+head(Boston)
+```
+
+Las losowy z domyślną liczbą podziałów (dla regresji \(mtry \approx \sqrt{p}\)). Parametr `importance = TRUE` włącza liczenie ważności predyktorów.
+
+```{r boston-rf}
+medv_rf <- randomForest(medv ~ ., data = Boston, importance = TRUE)
+medv_rf
+```
+
+Wykres błędu OOB względem liczby drzew.
+
+```{r boston-rf-plot-oob}
+plot(medv_rf, type = "l")
+```
+
+Dla regresji składowa `mse` zawiera błąd MSE OOB; ostatnie wartości:
+
+```{r boston-rf-mse-tail}
+tail(medv_rf$mse)
+```
+
+Składowa `rsq` to pseudo-\(R^2\) liczone z MSE OOB i wariancji odpowiedzi.
+
+```{r boston-rf-rsq-plot}
+plot(medv_rf$rsq, type = "l", xlab = "trees", ylab = expression(R^2))
+```
+
+Ważność predyktorów (`%IncMSE`, `IncNodePurity`):
+
+```{r boston-rf-importance}
+importance(medv_rf)
+```
+
+```{r boston-rf-varimp}
+varImpPlot(medv_rf)
+```
+
+Wykresy częściowej zależności dla wybranych zmiennych:
+
+```{r boston-rf-pdp-rm}
+partialPlot(medv_rf, Boston, x.var = rm)
+```
+
+```{r boston-rf-pdp-lstat}
+partialPlot(medv_rf, Boston, x.var = lstat)
+```
+
+Funkcja `partialPlot()` z `randomForest` to uproszczone PDP; `plotmo` pozwala m.in. na interakcje.
+
+```{r boston-rf-plotmo-int}
+plotmo(medv_rf, pmethod = "partdep", degree1 = FALSE, degree2 = c("rm", "lstat"))
+```
+
+Model baggingowy (`mtry = 13` — wszystkie predyktory przy każdym podziale):
+
+```{r boston-bag}
+medv_bag <- randomForest(medv ~ ., data = Boston, mtry = 13, importance = TRUE)
+medv_bag
+```
+
+Dobór `mtry` funkcją `tuneRF` (start od 2, krok ×2):
+
+```{r boston-tune-rf}
+tune_res <- tuneRF(Boston[, -14], Boston[, 14], mtryStart = 2, stepFactor = 2, trace = FALSE)
+tune_res
+```
+
+```{r boston-tune-fit}
+medv_rf_tuned <- NULL
+row_min <- which.min(tune_res[, "OOBError"])
+mtry_min <- tune_res[row_min, "mtry"]
+
+if (!(mtry_min %in% c(medv_rf$mtry, 13))) {
+  medv_rf_tuned <- randomForest(medv ~ ., data = Boston, mtry = mtry_min)
+  medv_rf_tuned
+} else if (mtry_min == medv_rf$mtry) {
+  "Równa domyślnej"
+} else {
+  "Równa maksymalnej"
+}
+```
+
+Porównanie krzywych MSE OOB: las domyślny, bagging, ewentualnie las strojony.
+
+```{r boston-oob-compare, fig.height = 5}
+cols <- c("red", "black", "green")
+
+plot(medv_rf, type = "l", col = cols[1], main = NULL)
+lines(medv_bag$mse, col = cols[2])
+lgd <- c("rf", "bag")
+
+if (!is.null(medv_rf_tuned)) {
+  lines(medv_rf_tuned$mse, col = cols[3])
+  lgd <- c(lgd, "rf_tuned")
+}
+legend("topright", legend = lgd, col = head(cols, length(lgd)), pch = 20)
+```
+
+Oszacowanie błędu testowego — ten sam podział co w laboratorium 8 (`set.seed(2025)`, indeksy `train_bo` / `test_bo`).
+
+```{r boston-train-test}
+set.seed(2025)
+n_bo <- nrow(Boston)
+train_bo <- sample(n_bo, 0.8 * n_bo)
+test_bo <- setdiff(seq_len(n_bo), train_bo)
+
+medv_rf_subset <- randomForest(medv ~ ., data = Boston, subset = train_bo)
+medv_rf_subset_pred <- predict(medv_rf_subset, newdata = Boston[test_bo, ])
+mean((medv_rf_subset_pred - Boston$medv[test_bo])^2)
+```
+
+```{r boston-bag-test}
+medv_bag_subset <- randomForest(medv ~ ., data = Boston, subset = train_bo, mtry = 13)
+medv_bag_subset_pred <- predict(medv_bag_subset, newdata = Boston[test_bo, ])
+mean((medv_bag_subset_pred - Boston$medv[test_bo])^2)
+```
+
+```{r boston-tuned-test}
+if (!is.null(medv_rf_tuned)) {
+  medv_tuned_subset <- randomForest(medv ~ ., data = Boston, subset = train_bo, mtry = mtry_min)
+  medv_tuned_subset_pred <- predict(medv_tuned_subset, newdata = Boston[test_bo, ])
+  mean((medv_tuned_subset_pred - Boston$medv[test_bo])^2)
+}
+```
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Klasyfikacja — `CarseatsH`
+
+```{r carseats-prep}
+CarseatsH <-
+  Carseats |>
+  transform(High = factor(ifelse(Sales <= 8, "No", "Yes")))
+head(CarseatsH)
+```
+
+Las losowy z domyślnym `mtry` (dla klasyfikacji \(p/3\)).
+
+```{r carseats-rf}
+csh_rf <- randomForest(High ~ . - Sales, data = CarseatsH, importance = TRUE)
+csh_rf
+```
+
+Wykres błędu OOB — czarna: ogólny OOB, zielona: klasa `Yes`, czerwona: `No`.
+
+```{r carseats-rf-plot}
+plot(csh_rf, type = "l")
+```
+
+```{r carseats-rf-err-tail}
+tail(csh_rf$err.rate)
+```
+
+```{r carseats-rf-confusion}
+csh_rf$confusion
+```
+
+```{r carseats-rf-importance}
+importance(csh_rf)
+```
+
+```{r carseats-rf-varimp}
+varImpPlot(csh_rf)
+```
+
+```{r carseats-rf-pdp-shelve}
+partialPlot(csh_rf, CarseatsH, x.var = ShelveLoc, which.class = "Yes")
+```
+
+```{r carseats-rf-pdp-price}
+partialPlot(csh_rf, CarseatsH, x.var = Price, which.class = "Yes")
+```
+
+```{r carseats-rf-pdp-adv}
+partialPlot(csh_rf, CarseatsH, x.var = Advertising, which.class = "Yes")
+```
+
+```{r carseats-rf-plotmo}
+plotmo(csh_rf, pmethod = "partdep", degree2 = c("^Price", "Advertising"))
+```
+
+Bagging (`mtry = 10` — liczba predyktorów w modelu):
+
+```{r carseats-bag}
+csh_bag <- randomForest(High ~ . - Sales, data = CarseatsH, mtry = 10, importance = TRUE)
+csh_bag
+```
+
+```{r carseats-oob-compare, fig.height = 5}
+cols_oob <- c("red", "blue")
+plot(csh_rf$err.rate[, "OOB"], type = "l", col = cols_oob[1], xlab = "trees", ylab = "OOB error")
+lines(csh_bag$err.rate[, "OOB"], type = "l", col = cols_oob[2])
+legend("topright", legend = c("rf", "bag"), col = cols_oob, pch = 20)
+```
+
+Błąd klasyfikacji na zbiorze testowym (`set.seed(1)`, indeksy `train_cs` / `test_cs`).
+
+```{r carseats-train-test}
+set.seed(1)
+n_cs <- nrow(CarseatsH)
+train_cs <- sample(n_cs, 0.8 * n_cs)
+test_cs <- setdiff(seq_len(n_cs), train_cs)
+
+csh_rf_subset <- randomForest(High ~ . - Sales, data = CarseatsH, subset = train_cs)
+csh_rf_subset_pred <- predict(csh_rf_subset, newdata = CarseatsH[test_cs, ])
+mean(csh_rf_subset_pred != CarseatsH$High[test_cs])
+```
+
+```{r carseats-bag-test}
+csh_bag_subset <- randomForest(High ~ . - Sales, data = CarseatsH, subset = train_cs, mtry = 10)
+csh_bag_subset_pred <- predict(csh_bag_subset, newdata = CarseatsH[test_cs, ])
+mean(csh_bag_subset_pred != CarseatsH$High[test_cs])
+```
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Podsumowanie
+
+Zastosowano `randomForest` do regresji (`Boston`) i klasyfikacji (`CarseatsH`): las domyślny, bagging, opcjonalny dobór `mtry`, ważność zmiennych, PDP oraz błąd na holdoucie przy ujednoliconym podziale train/test jak w laboratorium 8.

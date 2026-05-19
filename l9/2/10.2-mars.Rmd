@@ -1,0 +1,190 @@
+---
+title: "Laboratorium 9.2 — MARS"
+subtitle: "Statystyka w SI i analizie danych — ćwiczenia"
+author: "Wojciech Maćkowiak, 412430"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    number_sections: false
+    keep_tex: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 6,
+  fig.height = 4,
+  fig.align = "center"
+)
+ini <- knitr::current_input()
+proj_dir <- if (is.null(ini) || !nzchar(ini)) getwd() else dirname(normalizePath(ini, winslash = "/"))
+knitr::opts_knit$set(root.dir = proj_dir)
+```
+
+**Pakiety:** `earth`, `MASS`, `ISLR`, `plotmo`. Instalacja: `install.packages(c("earth", "MASS", "ISLR", "plotmo"))`.
+
+```{r libraries}
+library(earth)
+library(MASS)
+library(ISLR)
+library(plotmo)
+```
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Regresja — `Boston`
+
+Implementacja MARS jest w pakiecie `earth`.
+
+```{r boston-head}
+head(Boston)
+```
+
+Model MARS bez interakcji wyższego rzędu (addytywny w sensie hinge functions):
+
+```{r boston-mars}
+medv_mars <- earth(medv ~ ., data = Boston)
+summary(medv_mars)
+```
+
+Wykresy diagnostyczne: selekcja modelu, ECDF rezyduów, rezydua vs fitted, QQ.
+
+```{r boston-mars-plot}
+plot(medv_mars)
+```
+
+Ważność predyktorów (`evimp`):
+
+```{r boston-mars-evimp}
+medv_mars_evimp <- evimp(medv_mars)
+medv_mars_evimp
+```
+
+```{r boston-mars-evimp-plot}
+plot(medv_mars_evimp)
+```
+
+Częściowa zależność (`plotmo`, PDP):
+
+```{r boston-mars-plotmo}
+plotmo(medv_mars, pmethod = "partdep", degree1 = c("rm", "lstat"))
+```
+
+MARS z poziomem interakcji 2:
+
+```{r boston-mars-d2}
+medv_mars_d2 <- earth(medv ~ ., data = Boston, degree = 2)
+summary(medv_mars_d2)
+```
+
+```{r boston-mars-d2-evimp}
+evimp(medv_mars_d2) |> plot()
+```
+
+```{r boston-mars-d2-plotmo}
+plotmo(
+  medv_mars_d2,
+  pmethod = "partdep",
+  degree1 = c("rm", "lstat"),
+  degree2 = c("rm", "lstat")
+)
+```
+
+Porównanie modeli (RSS/GCV na zbiorze uczącym):
+
+```{r boston-mars-compare-models}
+plot.earth.models(list(medv_mars, medv_mars_d2))
+```
+
+Oszacowanie MSE na zbiorze testowym — podział jak w laboratorium 8 (`set.seed(2025)`).
+
+```{r boston-train-test}
+set.seed(2025)
+n_bo <- nrow(Boston)
+train_bo <- sample(n_bo, 0.8 * n_bo)
+test_bo <- setdiff(seq_len(n_bo), train_bo)
+
+medv_mars_subset <- earth(medv ~ ., data = Boston, subset = train_bo)
+medv_mars_subset_pred <- predict(medv_mars_subset, newdata = Boston[test_bo, ])
+mean((medv_mars_subset_pred - Boston$medv[test_bo])^2)
+```
+
+```{r boston-mars-d2-test}
+medv_mars_d2_subset <- earth(medv ~ ., data = Boston, subset = train_bo, degree = 2)
+medv_mars_d2_subset_pred <- predict(medv_mars_d2_subset, newdata = Boston[test_bo, ])
+mean((medv_mars_d2_subset_pred - Boston$medv[test_bo])^2)
+```
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Klasyfikacja — `CarseatsH`
+
+```{r carseats-prep}
+CarseatsH <-
+  Carseats |>
+  transform(High = factor(ifelse(Sales <= 8, "No", "Yes")))
+head(CarseatsH)
+```
+
+MARS z warstwą GLM (logit) — `glm = list(family = binomial)`:
+
+```{r carseats-mars}
+csh_mars <- earth(High ~ . - Sales, data = CarseatsH, glm = list(family = binomial))
+summary(csh_mars)
+```
+
+Diagnostyka (`plotd` z `earth`):
+
+```{r carseats-mars-plotd}
+plotd(csh_mars)
+```
+
+```{r carseats-mars-evimp}
+evimp(csh_mars) |> plot()
+```
+
+```{r carseats-mars-plotmo}
+plotmo(
+  csh_mars,
+  pmethod = "partdep",
+  degree1 = c("ShelveLoc", "^Price", "Advertising"),
+  degree2 = c("^Price", "Advertising")
+)
+```
+
+Błąd klasyfikacji na holdoucie (`set.seed(1)`):
+
+```{r carseats-train-test}
+set.seed(1)
+n_cs <- nrow(CarseatsH)
+train_cs <- sample(n_cs, 0.8 * n_cs)
+test_cs <- setdiff(seq_len(n_cs), train_cs)
+
+csh_mars_subset <- earth(High ~ . - Sales, data = CarseatsH, subset = train_cs, glm = list(family = binomial))
+csh_mars_subset_prob <- predict(csh_mars_subset, newdata = CarseatsH[test_cs, ], type = "response")
+csh_mars_subset_pred <- ifelse(csh_mars_subset_prob > 0.5, "Yes", "No")
+mean(csh_mars_subset_pred != as.character(CarseatsH$High[test_cs]))
+```
+
+```{r carseats-mars-d2-test}
+csh_mars_d2_subset <- earth(
+  High ~ . - Sales,
+  data = CarseatsH,
+  subset = train_cs,
+  degree = 2,
+  glm = list(family = binomial)
+)
+csh_mars_d2_subset_prob <- predict(csh_mars_d2_subset, newdata = CarseatsH[test_cs, ], type = "response")
+csh_mars_d2_subset_pred <- ifelse(csh_mars_d2_subset_prob > 0.5, "Yes", "No")
+mean(csh_mars_d2_subset_pred != as.character(CarseatsH$High[test_cs]))
+```
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Podsumowanie
+
+MARS (`earth`) dla regresji i klasyfikacji z GLM: modele addytywne i z `degree = 2`, ważność przez `evimp`, wizualizacje `plotmo` / `plotd`, MSE i błąd klasyfikacji na ujednoliconym podziale train/test jak w laboratorium 8.

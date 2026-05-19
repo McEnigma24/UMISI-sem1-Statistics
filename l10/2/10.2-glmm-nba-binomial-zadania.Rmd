@@ -1,0 +1,318 @@
+---
+title: "Laboratorium 10.2 — GLMM (NBA, skuteczność rzutów wolnych)"
+subtitle: "Statystyka w SI i analizie danych — materiał i zadanie z `8-glmm-2.html`"
+author: "Wojciech Maćkowiak, 412430"
+date: "`r Sys.Date()`"
+params:
+  nba_csv: null
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    number_sections: false
+    keep_tex: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 6,
+  fig.height = 4,
+  fig.align = "center"
+)
+ini <- knitr::current_input()
+proj_dir <- if (is.null(ini) || !nzchar(ini)) getwd() else dirname(normalizePath(ini, winslash = "/"))
+knitr::opts_knit$set(root.dir = proj_dir)
+```
+
+**Pakiety:** `dplyr`, `ggplot2`, `lme4` (`glmer`); dane przez `utils::read.csv` (bez `readr`).
+
+**Plik danych:** szukany jest `nba-players-2022-3.csv` w kolejności: `params$nba_csv` (jeśli ustawisz w YAML / `rmarkdown::render(..., params = list(nba_csv = \"ścieżka\"))`), potem `l10/2/`, `l10/`, `l10/data/`. Gdy **nigdzie go nie ma**, dokument wczyta **zbiór demonstracyjny** (ten sam kod dalej działa; na zajęciach podmień na prawdziwy CSV z wykładu).
+
+```{r libraries}
+library(dplyr)
+library(ggplot2)
+library(lme4)
+```
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Przykład — osiągnięcia graczy NBA
+
+```{r nba-read}
+candidate_paths <- c(
+  if (!is.null(params$nba_csv) && nzchar(as.character(params$nba_csv))) {
+    as.character(params$nba_csv)
+  } else {
+    character()
+  },
+  "nba-players-2022-3.csv",
+  "../nba-players-2022-3.csv",
+  "../data/nba-players-2022-3.csv"
+)
+nba_csv <- candidate_paths[file.exists(candidate_paths)][1]
+
+if (is.na(nba_csv)) {
+  message(
+    "Brak pliku nba-players-2022-3.csv — używam syntetycznych danych demonstracyjnych ",
+    "(do raportu z zajęć skopiuj CSV z materiałów do l10/2/ lub l10/)."
+  )
+  set.seed(412430L)
+  n <- 180L
+  rk <- seq_len(n)
+  pos_lab <- rep(c("PG", "SG", "SF-SG", "PF", "C"), length.out = n)
+  pos1 <- sub("^([[:alnum:]]+).*", "\\1", pos_lab)
+  g <- sample(20:82, n, replace = TRUE)
+  pts <- pmax(1L, rpois(n, lambda = 8L + as.integer(as.factor(pos1)) * 2L))
+  FTA <- pmax(2L, rpois(n, lambda = 5L))
+  eta <- -1.2 + 0.04 * (pts / g) + 0.15 * (as.integer(as.factor(pos1)) - 3)
+  p_fta <- pmin(0.92, pmax(0.45, plogis(eta)))
+  FT <- rbinom(n, FTA, p_fta)
+  nba_df <- data.frame(
+    Rk = rk,
+    Player = sprintf("Player_%04d", rk),
+    Pos = pos_lab,
+    Tm = sample(c("BOS", "LAL", "CHI", "MIA", "DAL"), n, replace = TRUE),
+    FT = FT,
+    FTA = FTA,
+    PTS = pts,
+    G = g,
+    stringsAsFactors = FALSE
+  )
+  nba_df[["FT%"]] <- ifelse(nba_df$FTA > 0, 100 * nba_df$FT / nba_df$FTA, NA_real_)
+} else {
+  message("Wczytuję: ", normalizePath(nba_csv, winslash = "/", mustWork = FALSE))
+  nba_df <- read.csv(
+    nba_csv,
+    stringsAsFactors = FALSE,
+    check.names = FALSE,
+    fileEncoding = "UTF-8"
+  )
+}
+head(nba_df)
+```
+
+```{r nba-drop-na}
+nba_df <- nba_df |> filter(if_all(everything(), ~ !is.na(.)))
+```
+
+```{r nba-multi-position-rows}
+nba_df |>
+  select(Rk, Player, Pos, Tm) |>
+  filter(grepl("-", Pos, fixed = TRUE))
+```
+
+```{r nba-collapse-position}
+nba_df <-
+  nba_df |>
+  mutate(Pos = as.factor(sub("^([[:alnum:]]+).*", "\\1", Pos)))
+table(nba_df$Pos)
+```
+
+```{r nba-transfers}
+transfered_df <-
+  nba_df |>
+  select(Rk, Tm) |>
+  group_by(Rk) |>
+  summarise(NClubs = n(), .groups = "drop") |>
+  filter(NClubs > 1)
+
+transfered_df
+```
+
+```{r nba-filter-tot}
+nba_df <-
+  nba_df |>
+  filter(!(Rk %in% transfered_df$Rk) | Tm == "TOT")
+nba_df
+```
+
+```{r nba-acc-by-pos}
+nba_df |>
+  group_by(Pos) |>
+  summarise(Acc = sum(FT) / sum(FTA), .groups = "drop")
+```
+
+```{r nba-acc-total}
+nba_df |>
+  summarise(TotalAcc = sum(FT) / sum(FTA))
+```
+
+```{r nba-boxplot-ft}
+nba_df |>
+  ggplot(aes(x = Pos, y = `FT%`)) +
+  geom_boxplot()
+```
+
+```{r nba-scatter-pts}
+nba_df |>
+  ggplot(aes(x = PTS / G, y = `FT%`)) +
+  geom_point(aes(color = Pos))
+```
+
+```{r nba-scatter-facet}
+nba_df |>
+  ggplot(aes(x = PTS / G, y = `FT%`)) +
+  geom_point(aes(color = Pos)) +
+  facet_wrap(~Pos)
+```
+
+# Analiza GLMM — model RI (materiał)
+
+Model z losowym wyrazem wolnym dla pozycji oraz dla zagnieżdżenia gracz–pozycja (logit, odpowiedź dwumianowa: trafione i chybione rzuty wolne).
+
+```{r nba-glmm-baseline}
+nba_fit <- glmer(
+  cbind(FT, FTA - FT) ~ 1 +
+    (1 | Pos) +
+    (1 | Pos:Player),
+  data = nba_df,
+  family = binomial(link = "logit")
+)
+summary(nba_fit)
+```
+
+```{r nba-fixef-plogis}
+fe <- fixef(nba_fit)
+fes <- c(fe, plogis(fe))
+names(fes)[2] <- "FT_Acc"
+fes
+```
+
+```{r nba-predict-marginal}
+predict(nba_fit, re.form = NA, type = "response")
+```
+
+```{r nba-ranef-pos}
+ranef(nba_fit)$Pos |>
+  mutate(FT_Acc = plogis(`(Intercept)` + fe[[1]]))
+```
+
+```{r nba-predict-by-pos}
+predict(
+  nba_fit,
+  nba_df |> distinct(Pos) |> arrange(Pos),
+  re.form = ~(1 | Pos),
+  type = "response"
+)
+```
+
+```{r nba-compare-mle-glmm-pos}
+nba_df |>
+  group_by(Pos) |>
+  summarise(FT_Acc_MLE = sum(FT) / sum(FTA), .groups = "drop") |>
+  mutate(
+    FT_Acc_GLMM = predict(nba_fit, data.frame(Pos = Pos), re.form = ~(1 | Pos), type = "response")
+  )
+```
+
+```{r nba-facet-hlines}
+nba_df |>
+  ggplot(aes(x = PTS / G, y = `FT%`)) +
+  geom_point(aes(color = Pos)) +
+  geom_hline(
+    aes(
+      yintercept = predict(nba_fit, data.frame(Pos = Pos), re.form = ~(1 | Pos), type = "response"),
+      color = Pos
+    )
+  ) +
+  facet_wrap(~Pos)
+```
+
+```{r nba-player-table}
+player_rks <- c(2, 143, 488, 101, 137, 348, 164, 397, 58, 335, 24, 149)
+nba_df |>
+  filter(Rk %in% player_rks) |>
+  mutate(
+    Predicted = predict(nba_fit, data.frame(Player = Player, Pos = Pos), type = "response"),
+    PosPredicted = predict(nba_fit, data.frame(Pos = Pos), re.form = ~(1 | Pos), type = "response")
+  ) |>
+  select(Rk, Player, Pos, Predicted, `FT%`, FT, FTA, PosPredicted) |>
+  arrange(Pos)
+```
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Zadanie — porównanie modeli GLMM
+
+**Treść (z materiału):** porównaj model RI (`nba_fit`) z:
+
+1. uproszczonym modelem RI z efektem losowym tylko na poziomie pozycji `(1 | Pos)`;
+2. modelem z drugim efektem stałym — średnią liczbą punktów na mecz (`PTS/G`) — po **ustandaryzowaniu**, oraz z losowymi wyrazami wolnymi jak w modelu wyjściowym;
+3. modelem z dwoma efektami stałymi jak w pkt. 2 oraz **trzecią** strukturą losową: losowe nachylenie ustandaryzowanej średniej punktów na mecz na poziomie pozycji, tj. łącznie dwa efekty stałe (intercept + `scale_pts`) i trzy składowe losowe: `(1 | Pos)`, `(1 | Pos:Player)` oraz `(0 + scale_pts | Pos)` (interpretacja: pozycje różnią się nie tylko poziomem, ale i związkiem skuteczności z typową „produktywnością” punktową).
+
+```{r nba-scale-pts}
+nba_df <- nba_df |>
+  mutate(
+    pts_pg = PTS / G,
+    scale_pts = as.numeric(scale(pts_pg))
+  )
+```
+
+```{r nba-glmm-pos-only}
+nba_ri_pos_only <- glmer(
+  cbind(FT, FTA - FT) ~ 1 + (1 | Pos),
+  data = nba_df,
+  family = binomial(link = "logit")
+)
+summary(nba_ri_pos_only)
+```
+
+```{r nba-glmm-pts-fixed}
+nba_ri_pts <- glmer(
+  cbind(FT, FTA - FT) ~ scale_pts +
+    (1 | Pos) +
+    (1 | Pos:Player),
+  data = nba_df,
+  family = binomial(link = "logit")
+)
+summary(nba_ri_pts)
+```
+
+```{r nba-glmm-pts-rand-slope-pos, cache=FALSE}
+ctrl <- glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 5e5))
+nba_ri_pts_pos_slope <- glmer(
+  cbind(FT, FTA - FT) ~ scale_pts +
+    (1 | Pos / Player) +
+    (0 + scale_pts | Pos),
+  data = nba_df,
+  family = binomial(link = "logit"),
+  control = ctrl
+)
+summary(nba_ri_pts_pos_slope)
+```
+
+```{r nba-aic-table}
+aic_tab <- data.frame(
+  model = c(
+    "RI (materiał): (1|Pos) + (1|Pos:Player)",
+    "RI uproszczony: tylko (1|Pos)",
+    "RI + scale(PTS/G) stały",
+    "RI + scale(PTS/G) + losowe nachylenie scale_pts | Pos"
+  ),
+  AIC = c(
+    AIC(nba_fit),
+    AIC(nba_ri_pos_only),
+    AIC(nba_ri_pts),
+    AIC(nba_ri_pts_pos_slope)
+  ),
+  BIC = c(
+    BIC(nba_fit),
+    BIC(nba_ri_pos_only),
+    BIC(nba_ri_pts),
+    BIC(nba_ri_pts_pos_slope)
+  )
+)
+knitr::kable(aic_tab, digits = 2, caption = "Porównanie kryteriami informacyjnymi (niżej lepiej, przy porównywalnym celu predykcyjnym).")
+```
+
+Testy LR dla zagnieżdżonych par (dokładność asymptotyczna):
+
+```{r nba-anova-nested}
+anova(nba_ri_pos_only, nba_fit, test = "Chisq")
+anova(nba_fit, nba_ri_pts, test = "Chisq")
+```
+
+**Krótka interpretacja (do uzupełnienia własnym tekstem na zajęcia):** czy uproszczenie struktury losowej (tylko pozycja) znacząco psuje dopasowanie względem pełnego RI? Czy dodanie ustandaryzowanej średniej punktów na mecz poprawia model? Czy trzeci składnik losowy (nachylenia na poziomie `Pos`) jest potrzebny w świetle AIC/BIC i ewentualnego `anova(...)` dla sensownej pary zagnieżdżonej?

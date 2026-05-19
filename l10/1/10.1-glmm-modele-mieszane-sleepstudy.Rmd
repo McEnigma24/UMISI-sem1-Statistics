@@ -1,0 +1,228 @@
+---
+title: "Laboratorium 10.1 — modele efektów mieszanych (`sleepstudy`)"
+subtitle: "Statystyka w SI i analizie danych — materiał z `8-glmm-1.html`"
+author: "Wojciech Maćkowiak, 412430"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    number_sections: false
+    keep_tex: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 6,
+  fig.height = 4,
+  fig.align = "center"
+)
+ini <- knitr::current_input()
+proj_dir <- if (is.null(ini) || !nzchar(ini)) getwd() else dirname(normalizePath(ini, winslash = "/"))
+knitr::opts_knit$set(root.dir = proj_dir)
+```
+
+**Pakiety:** `lme4` (`lmer`, `sleepstudy`), `ggplot2`, `dplyr`. Instalacja: `install.packages(c("lme4", "ggplot2", "dplyr"))`.
+
+```{r libraries}
+library(lme4)
+library(ggplot2)
+library(dplyr)
+```
+
+\noindent\rule{\textwidth}{0.4pt}
+
+# Przykład z wykładu — zbiór `sleepstudy`
+
+Dane: czas reakcji w zadaniu psychofizycznym w funkcji dni bez snu (18 osób, 10 pomiarów).
+
+```{r sleepstudy-head-tail}
+head(sleepstudy, 10)
+tail(sleepstudy, 10)
+```
+
+```{r sleepstudy-scatter}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction)) +
+  geom_point()
+```
+
+# Model liniowy najmniejszych kwadratów
+
+```{r sleepstudy-lm}
+ss_lm_fit <- lm(Reaction ~ Days, data = sleepstudy)
+summary(ss_lm_fit)
+```
+
+```{r sleepstudy-lm-line}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_lm_fit)))
+```
+
+```{r sleepstudy-lm-by-subject}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction)) +
+  geom_point(aes(color = Subject)) +
+  geom_line(aes(y = predict(ss_lm_fit)))
+```
+
+```{r sleepstudy-lm-facet}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction)) +
+  geom_point(aes(color = Subject)) +
+  geom_line(aes(y = predict(ss_lm_fit))) +
+  facet_wrap(~Subject)
+```
+
+# Model losowych wyrazów wolnych (RI)
+
+```{r sleepstudy-ri}
+ss_ri_fit <- lmer(Reaction ~ 1 + (1 | Subject), data = sleepstudy)
+summary(ss_ri_fit)
+```
+
+```{r sleepstudy-ri-variance}
+ss_ri_vcov <- as.data.frame(VarCorr(ss_ri_fit))$vcov
+names(ss_ri_vcov) <- c("sigma^2_u", "sigma^2")
+ss_ri_vcov
+```
+
+Udział wariancji między osobami (ICC):
+
+```{r sleepstudy-ri-icc}
+ss_ri_vcov["sigma^2_u"] / sum(ss_ri_vcov)
+```
+
+```{r sleepstudy-ri-predict-lines}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_ri_fit)))
+```
+
+```{r sleepstudy-ri-facet}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_ri_fit))) +
+  facet_wrap(~Subject)
+```
+
+# Model losowych wyrazów wolnych i współczynników kierunkowych (RSI)
+
+```{r sleepstudy-rsi}
+ss_rsi_fit <- lmer(Reaction ~ Days + (Days | Subject), data = sleepstudy)
+summary(ss_rsi_fit)
+```
+
+```{r sleepstudy-rsi-fixef}
+fixef(ss_rsi_fit)
+```
+
+```{r sleepstudy-rsi-var-corr}
+ss_rsi_vc <- as.data.frame(VarCorr(ss_rsi_fit))
+sigma_rho <- ss_rsi_vc$vcov
+sigma_rho[3] <- ss_rsi_vc$sdcor[3]
+names(sigma_rho) <- c("sigma^2_u", "sigma^2_v", "rho_uv", "sigma^2")
+sigma_rho
+```
+
+```{r sleepstudy-rsi-lines}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_rsi_fit)))
+```
+
+```{r sleepstudy-rsi-facet}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_rsi_fit))) +
+  facet_wrap(~Subject)
+```
+
+# Model pośredni RIFS — ustalony współczynnik kierunkowy, losowe wyrazy wolne
+
+```{r sleepstudy-rifs}
+ss_rifs_fit <- lmer(Reaction ~ Days + (1 | Subject), data = sleepstudy)
+summary(ss_rifs_fit)
+```
+
+```{r sleepstudy-rifs-lines}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_rifs_fit)))
+```
+
+```{r sleepstudy-rifs-facet}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_rifs_fit))) +
+  facet_wrap(~Subject)
+```
+
+# Model pośredni FIRS — losowe współczynniki kierunkowe, ustalony wyraz wolny
+
+```{r sleepstudy-firs}
+ss_firs_fit <- lmer(Reaction ~ Days + (0 + Days | Subject), data = sleepstudy)
+summary(ss_firs_fit)
+```
+
+```{r sleepstudy-firs-lines}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_firs_fit)))
+```
+
+```{r sleepstudy-firs-facet}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_firs_fit))) +
+  facet_wrap(~Subject)
+```
+
+# Model RSI z niezależnymi błędami na poziomie osoby (RSI–i)
+
+```{r sleepstudy-rsii}
+ss_rsii_fit <- lmer(Reaction ~ Days + (Days || Subject), data = sleepstudy)
+summary(ss_rsii_fit)
+```
+
+```{r sleepstudy-rsii-var}
+ss_rsii_vcov <- as.data.frame(VarCorr(ss_rsii_fit))$vcov
+names(ss_rsii_vcov) <- c("sigma^2_u", "sigma^2_v", "sigma^2")
+ss_rsii_vcov
+```
+
+```{r sleepstudy-rsii-lines}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_rsii_fit)))
+```
+
+```{r sleepstudy-rsii-facet}
+sleepstudy |>
+  ggplot(aes(x = Days, y = Reaction, color = Subject)) +
+  geom_point() +
+  geom_line(aes(y = predict(ss_rsii_fit))) +
+  facet_wrap(~Subject)
+```
+
+# Porównanie modeli
+
+```{r sleepstudy-anova}
+anova(ss_rsi_fit, ss_rsii_fit, ss_rifs_fit, ss_firs_fit, ss_ri_fit)
+```
+
+Powyższa tabela `anova` z pakietu `lme4` porównuje modele zagnieżdżone pod względem losowej struktury (testy odchylenia). W razie potrzeby można uzupełnić porównanie kryteriami AIC/BIC (`AIC()`, `BIC()`).
