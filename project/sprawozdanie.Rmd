@@ -36,7 +36,7 @@ library(plotmo)
 
 # Wprowadzenie
 
-W zadaniu 3 porównuję modele regresji dla zależności między cechami klienta banku a jego sytuacją finansową. Chodzi o to, czy relacja jest liniowa (LM), czy lepiej sprawdzą się modele nieliniowe: regresja wielomianowa, funkcje sklejane albo MARS.
+W zadaniu 3 porównuję modele regresji dla zależności między cechami klienta banku a jego sytuacją finansową. Sprawdzam, czy relacja jest liniowa (LM), czy lepiej sprawdzą się modele nieliniowe: regresja wielomianowa, funkcje sklejane albo MARS.
 
 Korzystam ze zbioru [Bank Marketing](https://archive.ics.uci.edu/dataset/222/bank+marketing) z UCI — dane z kampanii telefonicznych portugalskiego banku.
 
@@ -91,27 +91,38 @@ str(bank[, c("age", "balance", cat_vars)])
 summary(bank[, c("age", "balance")])
 ```
 
-`balance` jest mocno skośny: sporo ujemnych sald, większość obserwacji blisko zera i kilka bardzo dużych wartości.
+Widzę, że `balance` jest mocno skośny: sporo ujemnych sald, większość obserwacji blisko zera i kilka bardzo dużych wartości. Na histogramach obcinam skalę albo biorę podzbiór, żeby wykres był czytelny.
 
 ```{r eda-balance, fig.height=4.5}
-par(mfrow = c(1, 2))
-hist(bank$balance, breaks = 80, col = "steelblue", border = "white",
-     main = "Rozkład balance", xlab = "balance (euro)")
-hist(log1p(pmax(bank$balance, 0)), breaks = 50, col = "steelblue", border = "white",
-     main = "log(1 + max(balance, 0))", xlab = "transformacja")
+q_bal <- quantile(bank$balance, c(0.01, 0.99))
+bal_pos <- bank$balance[bank$balance > 0]
+
+par(mfrow = c(1, 2), mar = c(4, 4, 3, 1))
+hist(
+  bank$balance, breaks = 60, xlim = q_bal,
+  col = "steelblue", border = "white",
+  main = "balance (1–99 percentyl)", xlab = "balance (euro)"
+)
+hist(
+  log(bal_pos), breaks = 40,
+  col = "steelblue", border = "white",
+  main = "log(balance), tylko salda > 0", xlab = "log(balance)"
+)
 par(mfrow = c(1, 1))
 ```
 
 Rozrzut `age` i `balance`:
 
 ```{r eda-scatter, fig.height=5}
+ylim_bal <- quantile(bank$balance, c(0.01, 0.99))
 plot(bank$age, bank$balance, pch = 16, cex = 0.25, col = rgb(0, 0, 0, 0.15),
-     xlab = "age", ylab = "balance (euro)", main = "Rozrzut age vs balance")
+     xlab = "age", ylab = "balance (euro)", main = "Rozrzut age vs balance",
+     ylim = ylim_bal)
 abline(lm(balance ~ age, data = bank), col = "red", lwd = 2)
 legend("topright", legend = "LM (pełna próba)", col = "red", lty = 1, lwd = 2, cex = 0.85)
 ```
 
-Na wykresie widać raczej poziomą chmurę punktów — saldo nie rośnie wyraźnie wraz z wiekiem.
+Na wykresie widzę raczej poziomą chmurę punktów — saldo nie rośnie wyraźnie wraz z wiekiem.
 
 # Metodologia
 
@@ -158,7 +169,7 @@ c(train = nrow(train), test = nrow(test))
 
 # Modele jednowymiarowe: `balance ~ age`
 
-Poniżej modele z zadania dla `balance ~ age`.
+Poniżej przedstawiam modele z zadania dla `balance ~ age`.
 
 ## Regresja liniowa (LM)
 
@@ -297,7 +308,7 @@ metrics_mars
 metrics_mars_d2
 ```
 
-`evimp` i wykres częściowej zależności dla `age`:
+Dla MARS 1D patrzę na `evimp` i częściową zależność `age`:
 
 ```{r mars-evimp-plotmo, fig.height=4}
 evimp(fit_mars)
@@ -368,7 +379,7 @@ legend("topright",
        lty = 1, lwd = 2, cex = 0.7, bg = "white")
 ```
 
-R² na teście jest bardzo niski dla wszystkich modeli — sam wiek praktycznie nie tłumaczy salda. Splajny i MARS lekko zmieniają kształt krzywej względem LM, ale MSE spada minimalnie. Nie wygląda to ani na prostą zależność liniową, ani na wyraźną nieliniową.
+R² na teście jest bardzo niski dla wszystkich modeli — sam wiek praktycznie nie tłumaczy salda. Splajny i MARS lekko zmieniają kształt krzywej względem LM, ale MSE spada minimalnie. Moim zdaniem to ani prosta zależność liniowa, ani wyraźna nieliniowość.
 
 # Rozszerzenie wielowymiarowe
 
@@ -412,13 +423,14 @@ plot_gam_job_part <- function(fit, level_idx) {
   }
   ux <- seq_along(sel)
   ylim <- range(c(uy - 2 * se, uy + 2 * se), na.rm = TRUE)
+  par(mar = c(4.5, 4, 8, 1), mgp = c(2, 0.7, 0))
   plot(
     ux, uy, type = "n",
     xlim = c(0.4, length(sel) + 0.6), ylim = ylim,
     xlab = "", ylab = "partial for job", xaxt = "n"
   )
-  mtext("job", side = 1, line = 2.5, cex = 0.9)
-  axis(3, at = ux, labels = sel, las = 2, cex.axis = 0.9, tick = FALSE)
+  mtext("job", side = 1, line = 2.8, cex = 0.9)
+  axis(3, at = ux, labels = sel, las = 2, cex.axis = 0.88, tick = FALSE, mgp = c(2, 1.4, 0))
   segments(ux - 0.28, uy, ux + 0.28, uy)
   segments(ux, uy - 2 * se, ux, uy + 2 * se, lty = 2)
   segments(ux - 0.12, uy - 2 * se, ux + 0.12, uy - 2 * se, lty = 2)
@@ -428,17 +440,16 @@ plot_gam_job_part <- function(fit, level_idx) {
 
 Wykresy częściowych zależności z GAM (`job` w 3 częściach po 4 kategorie):
 
-```{r gam-plot-1, fig.width=6, fig.height=6.8, echo=FALSE}
+```{r gam-plot-1, fig.width=6, fig.height=7.2, echo=FALSE}
 op <- par(mfrow = c(3, 1), mar = c(3.5, 4, 3.5, 1), mgp = c(2, 0.7, 0), oma = c(0, 0, 0, 0))
 on.exit(par(op))
 plot.Gam(fit_gam, col = "red", se = TRUE, terms = "ns(age, df = 4)")
-par(mar = c(4, 4, 5.5, 1))
 plot_gam_job_part(fit_gam, 1:4)
 plot_gam_job_part(fit_gam, 5:8)
 ```
 
-```{r gam-plot-2, fig.width=6, fig.height=6.8, echo=FALSE}
-op <- par(mfrow = c(3, 1), mar = c(4, 4, 5.5, 1), mgp = c(2, 0.7, 0), oma = c(0, 0, 0, 0))
+```{r gam-plot-2, fig.width=6, fig.height=7.2, echo=FALSE}
+op <- par(mfrow = c(3, 1), mar = c(4, 4, 8, 1), mgp = c(2, 0.7, 0), oma = c(0, 0, 0, 0))
 on.exit(par(op))
 plot_gam_job_part(fit_gam, 9:12)
 par(mar = c(3.5, 4, 3.5, 1))
@@ -474,7 +485,7 @@ metrics_mars_full
 metrics_mars_full_d2
 ```
 
-`evimp` dla pełnego MARS:
+Sprawdzam ważność predyktorów w pełnym MARS (`evimp`):
 
 ```{r mars-full-evimp, fig.width=6, fig.height=4}
 par(mar = c(4, 4, 2, 0.5))
@@ -482,19 +493,13 @@ plot(evimp(fit_mars_full))
 par(mar = c(5, 4, 4, 2))
 ```
 
-```{r mars-full-plotmo-age, fig.width=6, fig.height=3}
-plotmo(fit_mars_full, pmethod = "partdep", degree1 = "age")
+Częściowe zależności dla `age` i `housing` — dla `job` nie robię osobnego wykresu, bo przy 12 kategoriach wychodzi nieczytelnie, a wpływ tej zmiennej i tak widać w `evimp`.
+
+```{r mars-full-plotmo, fig.width=6, fig.height=6, results="hide"}
+plotmo(fit_mars_full, pmethod = "partdep", degree1 = c("age", "housing"))
 ```
 
-```{r mars-full-plotmo-job, fig.width=6, fig.height=3}
-plotmo(fit_mars_full, pmethod = "partdep", degree1 = "job")
-```
-
-```{r mars-full-plotmo-housing, fig.width=6, fig.height=3}
-plotmo(fit_mars_full, pmethod = "partdep", degree1 = "housing")
-```
-
-Porównanie modeli jedno- i wielowymiarowych:
+Porównuję modele jedno- i wielowymiarowe:
 
 ```{r multivar-compare}
 multivar_df <- data.frame(
@@ -521,14 +526,14 @@ multivar_df <- data.frame(
 knitr::kable(multivar_df, digits = 4)
 ```
 
-Po dodaniu kowariantów R² rośnie względem modelu tylko z `age`. Najbardziej pomagają m.in. `job`, `housing` i `loan`. Dalej jednak R² jest niski.
+Po dodaniu kowariantów widzę, że R² rośnie względem modelu tylko z `age`. Najwięcej dają mi `job`, `housing` i `loan`, ale R² nadal jest niski.
 
 # Wnioski
 
-W danych UCI nie ma dochodu ani kwoty kredytu, więc jako zmienną objaśnianą wziąłem `balance`. To kompromis, ale innej sensownej ciągłej kolumny finansowej w tym zbiorze nie ma.
+W danych UCI nie ma dochodu ani kwoty kredytu, więc jako zmienną objaśnianą wziąłem `balance`. To kompromis — innej sensownej ciągłej kolumny finansowej w tym zbiorze nie znalazłem.
 
 Dla `balance ~ age` żaden model nie daje dobrego dopasowania. LM, wielomian, splajny i MARS są do siebie podobne pod względem MSE na teście — wiek sam z siebie nie wyjaśnia salda.
 
-Lepsze wyniki daje model z dodatkowymi zmiennymi (GAM albo MARS pełny). MARS bez ręcznego ustawiania węzłów wychwytuje progi i interakcje, co przy tylu predyktorach kategorycznych jest wygodne.
+Lepsze wyniki daje model z dodatkowymi zmiennymi (GAM albo pełny MARS). Lubię tu MARS, bo nie muszę ręcznie dobierać węzłów — sam wychwytuje progi i interakcje.
 
-Na koniec: `balance` jest mocno skośny, a dane pochodzą z jednej kampanii jednego banku, więc wniosków nie da się łatwo przenieść gdzie indziej.
+`balance` jest mocno skośny, a dane pochodzą z jednej kampanii jednego banku, więc nie przenosiłbym tych wniosków na inne populacje bez ostrożności.
