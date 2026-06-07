@@ -1,0 +1,534 @@
+---
+title: "Sprawozdanie — Wyjaśnianie czynników wpływających na wysokość kredytu"
+subtitle: "Statystyka w SI i analizie danych — projekt (problem 3)"
+author: "Wojciech Maćkowiak, 412430"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    number_sections: true
+    keep_tex: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 6,
+  fig.height = 4,
+  fig.align = "center"
+)
+ini <- knitr::current_input()
+proj_dir <- if (is.null(ini) || !nzchar(ini)) getwd() else dirname(normalizePath(ini, winslash = "/"))
+knitr::opts_knit$set(root.dir = proj_dir)
+```
+
+**Pakiety:** `earth`, `splines`, `gam`, `plotmo`. Instalacja: `install.packages(c("earth", "gam", "plotmo"))` (pakiet `splines` jest w bazie R).
+
+```{r libraries}
+library(earth)
+library(splines)
+library(gam)
+library(plotmo)
+```
+
+# Wprowadzenie
+
+W zadaniu 3 porównuję modele regresji dla zależności między cechami klienta banku a jego sytuacją finansową. Chodzi o to, czy relacja jest liniowa (LM), czy lepiej sprawdzą się modele nieliniowe: regresja wielomianowa, funkcje sklejane albo MARS.
+
+Korzystam ze zbioru [Bank Marketing](https://archive.ics.uci.edu/dataset/222/bank+marketing) z UCI — dane z kampanii telefonicznych portugalskiego banku.
+
+## Jak zmapowałem problem na dane
+
+W pliku nie ma kolumny z dochodem ani kwotą kredytu. Jest za to `balance` (średnie roczne saldo w euro) oraz `loan` (czy klient ma kredyt osobisty: tak/nie, bez kwoty). Przyjąłem więc:
+
+- cel regresji: `balance`;
+- główny predyktor ciągły: `age` — tu sprawdzam liniowość;
+- w modelu rozszerzonym dokładam: `job`, `education`, `marital`, `housing`, `loan`, `default`.
+
+To nie jest idealne odwzorowanie treści zadania, ale `balance` to jedyna sensowna ciągła zmienna finansowa w tym zbiorze.
+
+# Opis danych
+
+```{r download-data}
+data_dir <- file.path(proj_dir, "data")
+csv_path <- file.path(data_dir, "bank-full.csv")
+
+if (!file.exists(csv_path)) {
+  dir.create(data_dir, showWarnings = FALSE, recursive = TRUE)
+  zip_outer <- file.path(data_dir, "bank-marketing.zip")
+  download.file(
+    "https://archive.ics.uci.edu/static/public/222/bank+marketing.zip",
+    zip_outer,
+    mode = "wb",
+    quiet = TRUE
+  )
+  unzip(zip_outer, exdir = data_dir)
+  zip_inner <- file.path(data_dir, "bank.zip")
+  if (file.exists(zip_inner)) {
+    unzip(zip_inner, exdir = data_dir)
+  }
+}
+
+bank <- read.csv2(csv_path, stringsAsFactors = FALSE)
+nrow(bank)
+ncol(bank)
+```
+
+```{r data-prep}
+bank$age <- as.numeric(bank$age)
+bank$balance <- as.numeric(bank$balance)
+
+cat_vars <- c("job", "marital", "education", "default", "housing", "loan")
+for (v in cat_vars) {
+  bank[[v]] <- factor(bank[[v]])
+}
+
+head(bank)
+str(bank[, c("age", "balance", cat_vars)])
+summary(bank[, c("age", "balance")])
+```
+
+`balance` jest mocno skośny: sporo ujemnych sald, większość obserwacji blisko zera i kilka bardzo dużych wartości.
+
+```{r eda-balance, fig.height=4.5}
+par(mfrow = c(1, 2))
+hist(bank$balance, breaks = 80, col = "steelblue", border = "white",
+     main = "Rozkład balance", xlab = "balance (euro)")
+hist(log1p(pmax(bank$balance, 0)), breaks = 50, col = "steelblue", border = "white",
+     main = "log(1 + max(balance, 0))", xlab = "transformacja")
+par(mfrow = c(1, 1))
+```
+
+Rozrzut `age` i `balance`:
+
+```{r eda-scatter, fig.height=5}
+plot(bank$age, bank$balance, pch = 16, cex = 0.25, col = rgb(0, 0, 0, 0.15),
+     xlab = "age", ylab = "balance (euro)", main = "Rozrzut age vs balance")
+abline(lm(balance ~ age, data = bank), col = "red", lwd = 2)
+legend("topright", legend = "LM (pełna próba)", col = "red", lty = 1, lwd = 2, cex = 0.85)
+```
+
+Na wykresie widać raczej poziomą chmurę punktów — saldo nie rośnie wyraźnie wraz z wiekiem.
+
+# Metodologia
+
+## Podział danych i metryki
+
+Dzielę dane na train/test (80/20), `set.seed(2025)` jak na laboratoriach. Uczę na train, oceniam na test.
+
+Do porównań biorę MSE, RMSE, R² (na teście) oraz AIC (na train, niższe = lepiej).
+
+```{r methodology}
+set.seed(2025)
+n <- nrow(bank)
+train_idx <- sample(n, 0.8 * n)
+test_idx <- setdiff(seq_len(n), train_idx)
+
+train <- bank[train_idx, ]
+test <- bank[test_idx, ]
+
+age_lims <- range(bank$age)
+age_grid <- seq(age_lims[1], age_lims[2])
+
+model_metrics <- function(y_true, y_pred) {
+  mse <- mean((y_true - y_pred)^2)
+  ss_res <- sum((y_true - y_pred)^2)
+  ss_tot <- sum((y_true - mean(y_true))^2)
+  r2 <- 1 - ss_res / ss_tot
+  c(MSE = mse, RMSE = sqrt(mse), R2 = r2)
+}
+
+plot_fit <- function(x, y, fit_obj, age_grid, title = "", col = "red") {
+  pred <- predict(fit_obj, newdata = data.frame(age = age_grid), se.fit = TRUE)
+  se_bands <- cbind(
+    pred$fit + 2 * pred$se.fit,
+    pred$fit - 2 * pred$se.fit
+  )
+  plot(x, y, pch = 16, cex = 0.3, col = rgb(0, 0, 0, 0.12),
+       xlim = age_lims, xlab = "age", ylab = "balance", main = title)
+  lines(age_grid, pred$fit, col = col, lwd = 2)
+  matlines(age_grid, se_bands, col = col, lty = "dashed")
+}
+
+c(train = nrow(train), test = nrow(test))
+```
+
+# Modele jednowymiarowe: `balance ~ age`
+
+Poniżej modele z zadania dla `balance ~ age`.
+
+## Regresja liniowa (LM)
+
+```{r lm-fit}
+fit_lm <- lm(balance ~ age, data = train)
+summary(fit_lm)
+pred_lm_test <- predict(fit_lm, newdata = test)
+metrics_lm <- model_metrics(test$balance, pred_lm_test)
+metrics_lm
+AIC(fit_lm)
+```
+
+```{r lm-plot, fig.height=5}
+plot_fit(train$age, train$balance, fit_lm, age_grid,
+         title = "LM: balance ~ age", col = "red")
+```
+
+## Regresja wielomianowa
+
+Sprawdzam stopnie 2–5 i wybieram ten z najniższym AIC.
+
+```{r poly-fit}
+poly_degrees <- 2:5
+fits_poly <- lapply(poly_degrees, function(d) {
+  lm(balance ~ poly(age, d), data = train)
+})
+aic_poly <- sapply(fits_poly, AIC)
+names(aic_poly) <- paste0("stopień ", poly_degrees)
+aic_poly
+
+best_poly_idx <- which.min(aic_poly)
+best_poly_deg <- poly_degrees[best_poly_idx]
+fit_poly <- fits_poly[[best_poly_idx]]
+summary(fit_poly)
+
+pred_poly_test <- predict(fit_poly, newdata = test)
+metrics_poly <- model_metrics(test$balance, pred_poly_test)
+metrics_poly
+```
+
+```{r poly-plot, fig.height=5}
+plot_fit(train$age, train$balance, fit_poly, age_grid,
+         title = paste0("Regresja wielomianowa (stopień ", best_poly_deg, ")"),
+         col = "darkorange")
+```
+
+## Funkcje sklejane
+
+### B-splajny (`bs`)
+
+```{r bs-fit}
+dfs_bs <- c(4, 6, 10)
+fits_bs <- lapply(dfs_bs, function(d) lm(balance ~ bs(age, df = d), data = train))
+aic_bs <- sapply(fits_bs, AIC)
+names(aic_bs) <- paste0("df=", dfs_bs)
+aic_bs
+
+best_bs_idx <- which.min(aic_bs)
+best_bs_df <- dfs_bs[best_bs_idx]
+fit_bs <- fits_bs[[best_bs_idx]]
+summary(fit_bs)
+
+pred_bs_test <- predict(fit_bs, newdata = test)
+metrics_bs <- model_metrics(test$balance, pred_bs_test)
+metrics_bs
+```
+
+```{r bs-plot, fig.height=5}
+plot_fit(train$age, train$balance, fit_bs, age_grid,
+         title = paste0("B-splajny (df = ", best_bs_df, ")"), col = "blue")
+bs_knots <- attr(bs(train$age, df = best_bs_df), "knots")
+abline(v = bs_knots, lty = "dotted", col = "gray40")
+```
+
+### Naturalne splajny (`ns`)
+
+```{r ns-fit}
+dfs_ns <- c(3, 4, 6)
+fits_ns <- lapply(dfs_ns, function(d) lm(balance ~ ns(age, df = d), data = train))
+aic_ns <- sapply(fits_ns, AIC)
+names(aic_ns) <- paste0("df=", dfs_ns)
+aic_ns
+
+best_ns_idx <- which.min(aic_ns)
+best_ns_df <- dfs_ns[best_ns_idx]
+fit_ns <- fits_ns[[best_ns_idx]]
+summary(fit_ns)
+
+pred_ns_test <- predict(fit_ns, newdata = test)
+metrics_ns <- model_metrics(test$balance, pred_ns_test)
+metrics_ns
+```
+
+```{r ns-plot, fig.height=5}
+plot_fit(train$age, train$balance, fit_ns, age_grid,
+         title = paste0("Naturalne splajny (df = ", best_ns_df, ")"), col = "darkgreen")
+abline(v = attr(ns(train$age, df = best_ns_df), "knots"), lty = "dotted", col = "gray40")
+```
+
+### Wygładzające splajny (`smooth.spline`)
+
+`cv = TRUE` dobiera liczbę stopni swobody.
+
+```{r smooth-fit}
+fit_smooth <- smooth.spline(train$age, train$balance, cv = TRUE)
+fit_smooth$df
+
+pred_smooth_test <- predict(fit_smooth, test$age)$y
+metrics_smooth <- model_metrics(test$balance, pred_smooth_test)
+metrics_smooth
+```
+
+```{r smooth-plot, fig.height=5}
+plot(train$age, train$balance, pch = 16, cex = 0.3, col = rgb(0, 0, 0, 0.12),
+     xlim = age_lims, xlab = "age", ylab = "balance",
+     main = paste0("smooth.spline (df ≈ ", round(fit_smooth$df, 1), ")"))
+lines(fit_smooth, col = "purple", lwd = 2)
+```
+
+## MARS (`earth`)
+
+MARS bez interakcji (`degree = 1`) i z interakcjami (`degree = 2`).
+
+```{r mars-fit}
+fit_mars <- earth(balance ~ age, data = train)
+summary(fit_mars)
+
+fit_mars_d2 <- earth(balance ~ age, data = train, degree = 2)
+summary(fit_mars_d2)
+
+pred_mars_test <- predict(fit_mars, newdata = test)
+pred_mars_d2_test <- predict(fit_mars_d2, newdata = test)
+metrics_mars <- model_metrics(test$balance, pred_mars_test)
+metrics_mars_d2 <- model_metrics(test$balance, pred_mars_d2_test)
+metrics_mars
+metrics_mars_d2
+```
+
+`evimp` i wykres częściowej zależności dla `age`:
+
+```{r mars-evimp-plotmo, fig.height=4}
+evimp(fit_mars)
+plotmo(fit_mars, pmethod = "partdep", degree1 = "age")
+```
+
+```{r mars-d2-evimp}
+evimp(fit_mars_d2)
+```
+
+```{r mars-plot, fig.height=5}
+plot(train$age, train$balance, pch = 16, cex = 0.3, col = rgb(0, 0, 0, 0.12),
+     xlim = age_lims, xlab = "age", ylab = "balance", main = "MARS (degree = 1)")
+lines(age_grid, predict(fit_mars, newdata = data.frame(age = age_grid)), col = "brown", lwd = 2)
+```
+
+# Porównanie modeli jednowymiarowych
+
+```{r compare-table}
+compare_df <- data.frame(
+  Model = c(
+    "LM",
+    paste0("Wielomian (d=", best_poly_deg, ")"),
+    paste0("B-splajny (df=", best_bs_df, ")"),
+    paste0("Naturalne splajny (df=", best_ns_df, ")"),
+    paste0("smooth.spline (df≈", round(fit_smooth$df, 1), ")"),
+    "MARS (degree=1)",
+    "MARS (degree=2)"
+  ),
+  MSE = c(
+    metrics_lm["MSE"], metrics_poly["MSE"], metrics_bs["MSE"],
+    metrics_ns["MSE"], metrics_smooth["MSE"],
+    metrics_mars["MSE"], metrics_mars_d2["MSE"]
+  ),
+  RMSE = c(
+    metrics_lm["RMSE"], metrics_poly["RMSE"], metrics_bs["RMSE"],
+    metrics_ns["RMSE"], metrics_smooth["RMSE"],
+    metrics_mars["RMSE"], metrics_mars_d2["RMSE"]
+  ),
+  R2 = c(
+    metrics_lm["R2"], metrics_poly["R2"], metrics_bs["R2"],
+    metrics_ns["R2"], metrics_smooth["R2"],
+    metrics_mars["R2"], metrics_mars_d2["R2"]
+  ),
+  AIC = c(
+    AIC(fit_lm), AIC(fit_poly), AIC(fit_bs), AIC(fit_ns),
+    NA, fit_mars$gcv, fit_mars_d2$gcv
+  )
+)
+knitr::kable(compare_df, digits = 2)
+```
+
+Wszystkie dopasowania na jednym wykresie:
+
+```{r compare-plot, fig.height=5.5}
+plot(train$age, train$balance, pch = 16, cex = 0.2, col = rgb(0, 0, 0, 0.08),
+     xlim = age_lims, xlab = "age", ylab = "balance",
+     main = "Porównanie dopasowań balance ~ age")
+lines(age_grid, predict(fit_lm, newdata = data.frame(age = age_grid)), col = "red", lwd = 2)
+lines(age_grid, predict(fit_poly, newdata = data.frame(age = age_grid)), col = "darkorange", lwd = 2)
+lines(age_grid, predict(fit_bs, newdata = data.frame(age = age_grid)), col = "blue", lwd = 2)
+lines(age_grid, predict(fit_ns, newdata = data.frame(age = age_grid)), col = "darkgreen", lwd = 2)
+lines(age_grid, predict(fit_smooth, age_grid)$y, col = "purple", lwd = 2)
+lines(age_grid, predict(fit_mars, newdata = data.frame(age = age_grid)), col = "brown", lwd = 2)
+legend("topright",
+       legend = c("LM", "Wielomian", "B-splajny", "Naturalne splajny", "smooth.spline", "MARS"),
+       col = c("red", "darkorange", "blue", "darkgreen", "purple", "brown"),
+       lty = 1, lwd = 2, cex = 0.7, bg = "white")
+```
+
+R² na teście jest bardzo niski dla wszystkich modeli — sam wiek praktycznie nie tłumaczy salda. Splajny i MARS lekko zmieniają kształt krzywej względem LM, ale MSE spada minimalnie. Nie wygląda to ani na prostą zależność liniową, ani na wyraźną nieliniową.
+
+# Rozszerzenie wielowymiarowe
+
+Dokładam zmienne kategoryczne i patrzę, czy model się poprawia.
+
+## GAM z splajnami
+
+```{r gam-multivar}
+fit_gam <- gam(
+  balance ~ ns(age, df = 4) + job + education + marital + housing + loan + default,
+  data = train
+)
+summary(fit_gam)
+
+pred_gam_test <- predict(fit_gam, newdata = test)
+metrics_gam <- model_metrics(test$balance, pred_gam_test)
+metrics_gam
+AIC(fit_gam)
+```
+
+```{r gam-helpers, include=FALSE}
+plot_gam_terms <- function(fit, term_names, n_rows = length(term_names)) {
+  op <- par(
+    mfrow = c(n_rows, 1),
+    mar = c(3.5, 4, 3.5, 1),
+    mgp = c(2, 0.7, 0),
+    oma = c(0, 0, 0, 0)
+  )
+  on.exit(par(op))
+  plot.Gam(fit, col = "red", se = TRUE, terms = term_names)
+}
+
+plot_gam_job_part <- function(fit, level_idx) {
+  pp <- preplot.Gam(fit, terms = "job")[["job"]]
+  sel <- levels(pp$x)[level_idx]
+  uy <- se <- numeric(length(sel))
+  for (i in seq_along(sel)) {
+    j <- which(as.character(pp$x) == sel[i])[1]
+    uy[i] <- pp$y[j]
+    se[i] <- pp$se.y[j]
+  }
+  ux <- seq_along(sel)
+  ylim <- range(c(uy - 2 * se, uy + 2 * se), na.rm = TRUE)
+  plot(
+    ux, uy, type = "n",
+    xlim = c(0.4, length(sel) + 0.6), ylim = ylim,
+    xlab = "", ylab = "partial for job", xaxt = "n"
+  )
+  mtext("job", side = 1, line = 2.5, cex = 0.9)
+  axis(3, at = ux, labels = sel, las = 2, cex.axis = 0.9, tick = FALSE)
+  segments(ux - 0.28, uy, ux + 0.28, uy)
+  segments(ux, uy - 2 * se, ux, uy + 2 * se, lty = 2)
+  segments(ux - 0.12, uy - 2 * se, ux + 0.12, uy - 2 * se, lty = 2)
+  segments(ux - 0.12, uy + 2 * se, ux + 0.12, uy + 2 * se, lty = 2)
+}
+```
+
+Wykresy częściowych zależności z GAM (`job` w 3 częściach po 4 kategorie):
+
+```{r gam-plot-1, fig.width=6, fig.height=6.8, echo=FALSE}
+op <- par(mfrow = c(3, 1), mar = c(3.5, 4, 3.5, 1), mgp = c(2, 0.7, 0), oma = c(0, 0, 0, 0))
+on.exit(par(op))
+plot.Gam(fit_gam, col = "red", se = TRUE, terms = "ns(age, df = 4)")
+par(mar = c(4, 4, 5.5, 1))
+plot_gam_job_part(fit_gam, 1:4)
+plot_gam_job_part(fit_gam, 5:8)
+```
+
+```{r gam-plot-2, fig.width=6, fig.height=6.8, echo=FALSE}
+op <- par(mfrow = c(3, 1), mar = c(4, 4, 5.5, 1), mgp = c(2, 0.7, 0), oma = c(0, 0, 0, 0))
+on.exit(par(op))
+plot_gam_job_part(fit_gam, 9:12)
+par(mar = c(3.5, 4, 3.5, 1))
+plot.Gam(fit_gam, col = "red", se = TRUE, terms = "education")
+plot.Gam(fit_gam, col = "red", se = TRUE, terms = "marital")
+```
+
+```{r gam-plot-3, fig.width=6, fig.height=6.8, echo=FALSE}
+plot_gam_terms(fit_gam, c("housing", "loan", "default"), n_rows = 3)
+```
+
+## MARS wielowymiarowy
+
+```{r mars-multivar}
+fit_mars_full <- earth(
+  balance ~ age + job + education + marital + housing + loan + default,
+  data = train
+)
+summary(fit_mars_full)
+
+fit_mars_full_d2 <- earth(
+  balance ~ age + job + education + marital + housing + loan + default,
+  data = train,
+  degree = 2
+)
+summary(fit_mars_full_d2)
+
+pred_mars_full_test <- predict(fit_mars_full, newdata = test)
+pred_mars_full_d2_test <- predict(fit_mars_full_d2, newdata = test)
+metrics_mars_full <- model_metrics(test$balance, pred_mars_full_test)
+metrics_mars_full_d2 <- model_metrics(test$balance, pred_mars_full_d2_test)
+metrics_mars_full
+metrics_mars_full_d2
+```
+
+`evimp` dla pełnego MARS:
+
+```{r mars-full-evimp, fig.width=6, fig.height=4}
+par(mar = c(4, 4, 2, 0.5))
+plot(evimp(fit_mars_full))
+par(mar = c(5, 4, 4, 2))
+```
+
+```{r mars-full-plotmo-age, fig.width=6, fig.height=3}
+plotmo(fit_mars_full, pmethod = "partdep", degree1 = "age")
+```
+
+```{r mars-full-plotmo-job, fig.width=6, fig.height=3}
+plotmo(fit_mars_full, pmethod = "partdep", degree1 = "job")
+```
+
+```{r mars-full-plotmo-housing, fig.width=6, fig.height=3}
+plotmo(fit_mars_full, pmethod = "partdep", degree1 = "housing")
+```
+
+Porównanie modeli jedno- i wielowymiarowych:
+
+```{r multivar-compare}
+multivar_df <- data.frame(
+  Model = c(
+    "LM (age)",
+    paste0("MARS 1D (d=1)"),
+    "GAM (age + kowarianty)",
+    "MARS pełny (d=1)",
+    "MARS pełny (d=2)"
+  ),
+  MSE = c(
+    metrics_lm["MSE"], metrics_mars["MSE"],
+    metrics_gam["MSE"], metrics_mars_full["MSE"], metrics_mars_full_d2["MSE"]
+  ),
+  RMSE = c(
+    metrics_lm["RMSE"], metrics_mars["RMSE"],
+    metrics_gam["RMSE"], metrics_mars_full["RMSE"], metrics_mars_full_d2["RMSE"]
+  ),
+  R2 = c(
+    metrics_lm["R2"], metrics_mars["R2"],
+    metrics_gam["R2"], metrics_mars_full["R2"], metrics_mars_full_d2["R2"]
+  )
+)
+knitr::kable(multivar_df, digits = 4)
+```
+
+Po dodaniu kowariantów R² rośnie względem modelu tylko z `age`. Najbardziej pomagają m.in. `job`, `housing` i `loan`. Dalej jednak R² jest niski.
+
+# Wnioski
+
+W danych UCI nie ma dochodu ani kwoty kredytu, więc jako zmienną objaśnianą wziąłem `balance`. To kompromis, ale innej sensownej ciągłej kolumny finansowej w tym zbiorze nie ma.
+
+Dla `balance ~ age` żaden model nie daje dobrego dopasowania. LM, wielomian, splajny i MARS są do siebie podobne pod względem MSE na teście — wiek sam z siebie nie wyjaśnia salda.
+
+Lepsze wyniki daje model z dodatkowymi zmiennymi (GAM albo MARS pełny). MARS bez ręcznego ustawiania węzłów wychwytuje progi i interakcje, co przy tylu predyktorach kategorycznych jest wygodne.
+
+Na koniec: `balance` jest mocno skośny, a dane pochodzą z jednej kampanii jednego banku, więc wniosków nie da się łatwo przenieść gdzie indziej.

@@ -1,0 +1,20 @@
+Proszę wybrać jedno z dziewięciu zadań zawartych w dołączonym pliku. Zadania od 1 do 6 dają możliwość zdobycia maksymalnie oceny 4 za sprawozdanie. Zadania 7-9 dają możliwość zdobycia oceny 5.
+
+Sprawozdania powinny być przesłane w formie plików pdf. Powinny zawierać opis danych, opis użytych metod, metodologię badania, wyniki eksperymentów oraz wyciągnięte z nich wnioski.
+
+Ocenie będzie podlegać: forma wizualna raportu, poprawność przyjętej metodologii, stopień zagłębienia się w przeprowadzoną analizę.
+
+Proszę na razie zastanowić się, który temat chcielibyście Państwo zrealizować. Na zajęciach  26 maja podejmą Państwo finalną decyzję.
+
+
+
+
+
+MÓJ WYBRANY PROBLEM TO
+
+3. Wyjaśnianie czynników wpływających na wysokość kredytu
+Problem:
+Czy zależności pomiędzy dochodem i wysokością kredytu są liniowe (LM vs MARS vs
+funkcje sklejane vs regresja wielomianowa)? Jak je najlepiej zamodelować?
+Dane:
+Bank Marketing Dataset: https://archive.ics.uci.edu/dataset/222/bank+marketing
